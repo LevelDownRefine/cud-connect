@@ -1,51 +1,57 @@
 # cud-connect
 
-Minimal dynamic functional connectivity analysis in cocaine use disorder.
+可卡因使用障碍的极简动态功能连接分析。
 
-Parcel time series → sliding-window FC → cartographic profiles → integrated/segregated states → state-specific NBS.
+分区时间序列 → 滑窗功能连接 → 地形图剖面 → 整合态/分离态 → 状态特异的 NBS。
 
 ## Setup
 ```bash
 uv sync
 ```
 
-## Run
+## 运行
 
 ```bash
 uv run python main.py all
 ```
 
-Run one stage with `python main.py states` or `python main.py nbs`;
-NBS requires the saved state outputs.
+也可以用 `python main.py states` 或 `python main.py nbs` 单独跑某一阶段；
+NBS 需要先有状态输出。
 
-Run the small synthetic-data tests with `uv run pytest -q`.
+用 `uv run pytest -q` 跑小型合成数据的测试。
 
-## Layout
+## 目录结构
 
-`cud_connect/` holds the algorithms and knows nothing about this dataset: `config.py`
-the parameters, `states.py` the cartographic profiles and state estimation, `nbs.py`
-the network-based statistic. `dataset.py` is the study side — sample selection, archive
-layout and output naming — and `main.py` wires the two together and owns the CLI.
+`cud_connect/` 只放算法，不关心数据来自哪里：`config.py` 是参数，`states.py` 是地形图
+剖面与状态估计，`nbs.py` 是网络基础统计。`dataset.py` 是研究侧的部分——样本选择、
+归档布局与输出命名；`main.py` 把两者接起来，并负责命令行。
 
-## Data and outputs
+## 数据与输出
 
-`data/` contains XCP-D parcel time series, covariates and network labels derived from [SUDMEX-CONN](https://openneuro.org/datasets/ds003346/versions/1.1.2). Retained sample: 118 participants (54 HC, 64 CUD), 226 parcels, 295 frames.
+`data/` 里是从 [SUDMEX-CONN](https://openneuro.org/datasets/ds003346/versions/1.1.2) 派生的
+XCP-D 分区时间序列、协变量与网络标签。保留样本 118 人（54 HC、64 CUD），226 个分区，
+295 个时间点。
 
-Outputs are saved in `data/`: state labels and mean FC (`dfc_states.npz`), state quality, NBS summaries, edge tables and permutation distributions.
+输出写在 `data/`：状态标签与各状态平均 FC（`dfc_states.npz`）、状态质量、NBS 汇总、
+边表与置换分布。
 
-## Method
+## 方法
 
-44-second windows, 2-second steps, 274 windows per participant; 40×40 cartographic profiles; k-means with two clusters, 300 initializations and correlation distance. NBS uses 10,000 permutations, edge alpha 0.01 and age, sex, education and mean-FD covariates. Significance applies to each component as a whole.
+44 秒窗口、2 秒步长，每名被试 274 个窗口；40×40 地形图剖面；k-means 取两簇、300 次
+初始化、相关距离。NBS 用 10 000 次置换、边阈值 0.01，校正年龄、性别、教育年限与平均
+头动。显著性以整个分量为单位判定。
 
-Independent implementation based on [Zheng et al. (2025)](https://doi.org/10.3389/fnins.2025.1572463). It runs one seeded Louvain partition per window where the paper runs 100 consensus partitions, with a different sample, atlas and primary threshold. This reproduces the core workflow, not every published setting or result.
+这是基于 [Zheng 等（2025）](https://doi.org/10.3389/fnins.2025.1572463) 的独立实现。
+每个窗口只跑一次带种子的 Louvain 划分，论文用的是 100 次一致性划分；样本、图谱与
+主阈值也不同。它复现的是核心流程，不是论文的每一项设置或结果。
 
-## Results
+## 结果
 
-118 participants (54 HC, 64 CUD), 226 parcels, edge alpha 0.01, 10,000 permutations:
+118 人（54 HC、64 CUD）、226 个分区、边阈值 0.01、10 000 次置换：
 
-| state | component | edges | nodes | p(FWE) |
+| 状态 | 分量 | 边数 | 节点 | p(FWE) |
 | --- | --- | --- | --- | --- |
-| integrated | positive | 221 | 127 | 0.0229 |
-| segregated | positive | 265 | 134 | 0.0209 |
+| 整合态 | 正 | 221 | 127 | 0.0229 |
+| 分离态 | 正 | 265 | 134 | 0.0209 |
 
-Both components are higher in CUD. No negative component survives (p = 0.28 and 0.24).
+两个分量都是 CUD 更高。负向分量均不显著（p 分别为 0.28 与 0.24）。
