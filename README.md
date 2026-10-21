@@ -19,9 +19,10 @@ Run the small synthetic-data tests with `uv run pytest -q`.
 
 ## Layout
 
-`cud_connect/config.py` holds the analysis parameters, `data.py` the sample selection
-and loaders, `states.py` the cartographic profiles and state estimation, and `nbs.py`
-the network-based statistic. `main.py` dispatches the three stages.
+`cud_connect/` holds the algorithms and knows nothing about this dataset: `config.py`
+the parameters, `states.py` the cartographic profiles and state estimation, `nbs.py`
+the network-based statistic. `data.py` is the study side — sample selection, archive
+layout and output naming — and `main.py` wires the two together and owns the CLI.
 
 ## Data and outputs
 
