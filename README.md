@@ -10,12 +10,21 @@ With [uv](https://docs.astral.sh/uv/) installed:
 
 ```bash
 uv sync --locked
-uv run --locked python run.py --cpus 4
+uv run --locked python -m cud_connect all --cpus 4
 ```
 
-Use `--stage states` or `--stage nbs` to run a single stage. NBS requires the saved state outputs.
+Run one stage with `python -m cud_connect states` or `python -m cud_connect nbs`;
+NBS requires the saved state outputs.
 
 Run the small synthetic-data tests with `uv run --locked pytest -q`.
+
+## Layout
+
+`cud_connect/config.py` holds the analysis parameters, `data.py` the sample selection
+and loaders, `states.py` the cartographic profiles and state estimation, `nbs.py` the
+network-based statistic, and `cli.py` the `python -m cud_connect` entry point. The
+top-level `states.py` and `nbs.py` are thin compatibility shims for the original
+positional-argument scripts.
 
 ## Data and outputs
 

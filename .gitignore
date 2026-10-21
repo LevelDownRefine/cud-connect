@@ -14,3 +14,4 @@ Thumbs.db
 !/analysis/timeseries_all.npz
 !/analysis/covariates.tsv
 !/analysis/parcels_cortex.tsv
+.workbuddy/
