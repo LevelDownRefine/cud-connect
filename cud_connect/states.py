@@ -184,6 +184,3 @@ def main(argv=None):
         all_parcels=args.parcels == "all", limit=args.limit,
         metric=args.metric, seed=args.seed))
 
-
-if __name__ == "__main__":
-    main()

@@ -229,6 +229,3 @@ def main(argv=None):
         all_parcels=args.parcels == "all",
         covariates=tuple(args.covariates.split(","))))
 
-
-if __name__ == "__main__":
-    main()

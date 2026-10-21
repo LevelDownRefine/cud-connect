@@ -9,10 +9,10 @@ Parcel time series → sliding-window FC → cartographic profiles → integrate
 With [uv](https://docs.astral.sh/uv/) installed:
 
 ```bash
-uv run python -m cud_connect all
+uv run python main.py all
 ```
 
-Run one stage with `python -m cud_connect states` or `python -m cud_connect nbs`;
+Run one stage with `python main.py states` or `python main.py nbs`;
 NBS requires the saved state outputs.
 
 Run the small synthetic-data tests with `uv run pytest -q`.
@@ -20,10 +20,8 @@ Run the small synthetic-data tests with `uv run pytest -q`.
 ## Layout
 
 `cud_connect/config.py` holds the analysis parameters, `data.py` the sample selection
-and loaders, `states.py` the cartographic profiles and state estimation, `nbs.py` the
-network-based statistic, and `__main__.py` the `python -m cud_connect` entry point. The
-top-level `states.py` and `nbs.py` are thin compatibility shims for the original
-positional-argument scripts.
+and loaders, `states.py` the cartographic profiles and state estimation, and `nbs.py`
+the network-based statistic. `main.py` dispatches the three stages.
 
 ## Data and outputs
 

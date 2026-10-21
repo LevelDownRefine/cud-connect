@@ -1,8 +1,8 @@
 """Command line entry point.
 
-    python -m cud_connect states [root] [n_bins] [n_init] [limit] [cpus] [all]
-    python -m cud_connect nbs [root] [n_perm] [alpha] [covariates] [z|noz] [state] [all]
-    python -m cud_connect all [root] [--cpus N] [--alpha-edge A] [--n-perm N]
+    python main.py states [root] [n_bins] [n_init] [limit] [cpus] [all]
+    python main.py nbs [root] [n_perm] [alpha] [covariates] [z|noz] [state] [all]
+    python main.py all [root] [--cpus N] [--alpha-edge A] [--n-perm N]
 
 `states` and `nbs` keep the positional arguments of the original scripts.
 """
@@ -16,12 +16,12 @@ import sys
 for _key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_key, "1")
 
-from . import nbs, states  # noqa: E402
-from .config import NbsConfig, StateConfig  # noqa: E402
+from cud_connect import nbs, states  # noqa: E402
+from cud_connect.config import NbsConfig, StateConfig  # noqa: E402
 
 
 def _run_all(argv):
-    parser = argparse.ArgumentParser(prog="python -m cud_connect all",
+    parser = argparse.ArgumentParser(prog="python main.py all",
                                      description="Run state estimation, then state-specific NBS.")
     parser.add_argument("root", nargs="?", default=".", type=Path)
     parser.add_argument("--cpus", type=int, default=4)

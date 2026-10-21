@@ -36,7 +36,7 @@ jobs:
           cache-dependency-glob: uv.lock
       - name: Install locked dependencies
         run: uv sync --locked
-      - name: Check module entry point
-        run: uv run --locked python -m cud_connect --help
+      - name: Check entry point
+        run: uv run --locked python main.py --help
       - name: Run synthetic tests
         run: uv run --locked pytest -q
