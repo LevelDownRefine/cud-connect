@@ -1,17 +1,16 @@
 """Small synthetic integration tests; no study data or full analysis runs."""
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from cud_connect import nbs
+from cud_connect import nbs, states
 from cud_connect.config import NbsConfig
-
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -145,3 +144,34 @@ def test_invalid_inputs_are_rejected():
     for pattern, (Y, g, Z) in cases.items():
         with pytest.raises(ValueError, match=pattern):
             nbs.compare(Y, g, Z, edges, NbsConfig(n_perm=5))
+
+
+def test_window_fc_returns_fisher_z_windows():
+    """Every window is symmetric with a zero diagonal, and one window per step."""
+    rng = np.random.default_rng(3)
+    fc = states.window_fc(rng.normal(size=(40, 5)))
+    assert fc.shape == (40 - states.WIN_TR + 1, 5, 5)
+    np.testing.assert_allclose(fc, np.transpose(fc, (0, 2, 1)), atol=1e-12)
+    np.testing.assert_array_equal(np.diagonal(fc, axis1=1, axis2=2), 0.0)
+
+
+def test_align_states_labels_the_integrated_state_zero():
+    """`integrated` is decided by the mean participation coefficient, not by the
+    cluster number KMeans happened to hand out."""
+    n_bins = 4
+    profiles = np.zeros((4, n_bins, n_bins))
+    profiles[0, -1, 0] = profiles[1, -1, 0] = 1.0    # windows labelled 1 sit at high PC
+    profiles[2, 0, 0] = profiles[3, 0, 0] = 1.0      # windows labelled 0 sit at low PC
+    labels, _ = states.align_states(np.array([1, 1, 0, 0]), profiles.reshape(4, -1),
+                                    np.zeros((4, 2, 2)), n_bins)
+    assert labels.tolist() == [0, 0, 1, 1]
+
+
+def test_components_splits_disconnected_edges():
+    """Two separate triangles give two components; no edges give none."""
+    edges = nbs.Edges.complete(6)
+    lookup = {pair: i for i, pair in enumerate(zip(*edges.index))}
+    triangles = [(0, 1), (0, 2), (1, 2), (3, 4), (3, 5), (4, 5)]
+    sel = np.array([lookup[pair] for pair in triangles])
+    assert sorted(c.size for c in nbs.components(sel, edges)) == [3, 3]
+    assert nbs.components(np.array([], dtype=int), edges) == []
