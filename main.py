@@ -71,8 +71,8 @@ def run_nbs(root, config, *, state=None, covariates=None, seed=0):
         fc, avail, parcels, cov = dataset.load_state_fc(root, state)
     else:
         fc, avail, parcels, cov = dataset.load_static_fc(root)
-    labels = pd.read_csv(Path(root) / "data" / "parcels_cortex.tsv", sep="\t")
-    networks = dict(zip(labels["name"], labels["network_label"]))
+    atlas = pd.read_csv(Path(root) / "data" / "parcels_cortex.tsv", sep="\t")
+    networks = dict(zip(atlas["name"], atlas["network_label"]))
 
     rows, groups, nums = dataset.sample_rows(cov, avail, covariates)
     edges = nbs_lib.Edges.complete(len(parcels))
@@ -189,10 +189,12 @@ def _stage_all(argv):
     parser.add_argument("--cpus", type=int, default=4)
     parser.add_argument("--n-perm", type=int, default=10000)
     parser.add_argument("--alpha-edge", type=float, default=0.01)
+    parser.add_argument("--metric", choices=["correlation", "euclidean"], default="correlation")
+    parser.add_argument("--seed", type=int, default=SEED)
     args = parser.parse_args(argv)
     if args.cpus < 1:
         parser.error("--cpus must be positive")
-    run_states(args.root, StateConfig(), cpus=args.cpus)
+    run_states(args.root, StateConfig(metric=args.metric, seed=args.seed), cpus=args.cpus)
     for state in ("integrated", "segregated"):
         # State centroids are already Fisher-z values: do not transform again.
         run_nbs(args.root, NbsConfig(n_perm=args.n_perm, alpha_edge=args.alpha_edge,
