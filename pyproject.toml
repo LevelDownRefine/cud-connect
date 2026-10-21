@@ -1,0 +1,21 @@
+[project]
+name = "cud-connect"
+version = "0.1.0"
+description = "Minimal dynamic functional connectivity analysis in cocaine use disorder"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "bctpy==0.6.1",
+    "numpy>=1.26,<2",
+    "pandas>=2.2,<3",
+    "scikit-learn>=1.5,<2",
+    "scipy>=1.13,<2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

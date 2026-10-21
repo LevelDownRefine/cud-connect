@@ -6,11 +6,16 @@ Parcel time series → sliding-window FC → cartographic profiles → integrate
 
 ## Run
 
+With [uv](https://docs.astral.sh/uv/) installed:
+
 ```bash
-python run.py --cpus 4
+uv sync --locked
+uv run --locked python run.py --cpus 4
 ```
 
 Use `--stage states` or `--stage nbs` to run a single stage. NBS requires the saved state outputs.
+
+Run the small synthetic-data tests with `uv run --locked pytest -q`.
 
 ## Data and outputs
 
