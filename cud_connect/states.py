@@ -14,51 +14,59 @@ from .config import DUMMY, N_BINS, PC_RANGE, SEED, STEP_TR, WIN_TR, Z_RANGE, Sta
 from .data import load_timeseries
 
 
-def profiles_one(subject_ts, n_bins=N_BINS):
-    """Return normalized cartographic profiles and Fisher-z FC per window."""
+def window_fc(subject_ts):
+    """Fisher-z correlation of every full window, shape (windows, parcels, parcels)."""
     subject_ts = np.asarray(subject_ts, dtype=float)
     if subject_ts.ndim != 2 or subject_ts.shape[0] < WIN_TR:
         raise ValueError("Time series must be frames x parcels with at least one full window")
-    fc, profiles = [], []
+    windows = []
     for start in range(0, subject_ts.shape[0] - WIN_TR + 1, STEP_TR):
-        block = subject_ts[start:start + WIN_TR]
-        matrix = np.corrcoef(block, rowvar=False)
+        matrix = np.corrcoef(subject_ts[start:start + WIN_TR], rowvar=False)
         matrix = np.arctanh(np.clip(matrix, -1 + 1e-7, 1 - 1e-7))
         np.fill_diagonal(matrix, 0.0)
+        windows.append(matrix)
+    return np.asarray(windows)
+
+
+def cartographic(fc, n_bins=N_BINS):
+    """Normalized participation-by-degree profile of each window, one row per window."""
+    rows = []
+    for matrix in fc:
         communities, _ = bct.community_louvain(matrix, B="negative_asym", seed=SEED)
         participation, _ = bct.participation_coef_sign(matrix, communities)
         degree = bct.module_degree_zscore(matrix, communities)
         histogram, _, _ = np.histogram2d(
             participation, degree, bins=n_bins, range=[PC_RANGE, Z_RANGE],
         )
-        profiles.append(histogram.ravel())
-        fc.append(matrix.astype(np.float32))
-    profiles = np.asarray(profiles, float)
+        rows.append(histogram.ravel())
+    profiles = np.asarray(rows, float)
     totals = profiles.sum(axis=1, keepdims=True)
     if (totals == 0).any():
         raise ValueError("A window has no nodes inside the cartographic profile ranges")
-    profiles /= totals
-    return profiles, np.asarray(fc)
+    return profiles / totals
 
 
-def one_subject(subject_ts, config=StateConfig()):
-    """Return profiles, FCs, labels, centroids, silhouette and state count."""
+def cluster_states(profiles, config=StateConfig()):
+    """K-means into two states; returns labels, silhouette and the distinct count."""
     from sklearn.cluster import KMeans
     from sklearn.metrics import silhouette_score
 
-    profiles, fc = profiles_one(subject_ts, config.n_bins)
     if len(profiles) < 2:
         raise ValueError("State estimation requires at least two windows")
-    model = KMeans(n_clusters=2, n_init=config.kmeans_ninit,
-                   random_state=SEED).fit(profiles)
-    labels = model.labels_
+    labels = KMeans(n_clusters=2, n_init=config.kmeans_ninit,
+                    random_state=SEED).fit_predict(profiles)
     count = int(np.unique(labels).size)
     silhouette = (float(silhouette_score(profiles, labels))
                   if 1 < count < len(labels) else np.nan)
-    centers = (PC_RANGE[0] + (np.arange(config.n_bins) + .5)
-               * (PC_RANGE[1] - PC_RANGE[0]) / config.n_bins)
+    return labels, silhouette, count
+
+
+def align_states(labels, profiles, fc, n_bins=N_BINS):
+    """Relabel so 0 = integrated, then average the window FC of each state."""
+    centers = (PC_RANGE[0] + (np.arange(n_bins) + .5)
+               * (PC_RANGE[1] - PC_RANGE[0]) / n_bins)
     mean_pc = [
-        (profiles[labels == state].reshape(-1, config.n_bins, config.n_bins).sum(axis=2)
+        (profiles[labels == state].reshape(-1, n_bins, n_bins).sum(axis=2)
          * centers).sum(axis=1).mean() if (labels == state).any() else np.nan
         for state in (0, 1)
     ]
@@ -68,6 +76,15 @@ def one_subject(subject_ts, config=StateConfig()):
     centroids = np.stack([fc[labels == state].mean(axis=0)
                           if (labels == state).any() else empty_centroid
                           for state in (0, 1)])
+    return labels, centroids
+
+
+def one_subject(subject_ts, config=StateConfig()):
+    """Return profiles, FCs, labels, centroids, silhouette and state count."""
+    fc = window_fc(subject_ts)
+    profiles = cartographic(fc, config.n_bins)
+    labels, silhouette, count = cluster_states(profiles, config)
+    labels, centroids = align_states(labels, profiles, fc, config.n_bins)
     return profiles, fc, labels, centroids, silhouette, count
 
 
@@ -104,14 +121,14 @@ def run_states(root, config=StateConfig()):
     degenerate = [data.subjects[i] for i in np.flatnonzero(state_count < 2)]
     if degenerate or not np.isfinite(centroids).all():
         raise ValueError(f"Invalid state centroids; single-state subjects: {degenerate}")
-    analysis = Path(root) / "analysis"
+    out = Path(root) / "data"
     suffix = "_all" if config.all_parcels else ""
-    output = analysis / f"dfc_states{suffix}.npz"
+    output = out / f"dfc_states{suffix}.npz"
     np.savez_compressed(output, subjects=np.array(data.subjects), labels=labels,
                         centroids=centroids, parcels=np.array(data.parcels))
     pd.DataFrame({"subject": data.subjects, "silhouette": silhouette,
                   "n_states": state_count}).to_csv(
-        analysis / f"dfc_state_quality{suffix}.tsv", sep="\t", index=False)
+        out / f"dfc_state_quality{suffix}.tsv", sep="\t", index=False)
     meta = {
         "n": n, "timepoints": frames, "windows": windows, "parcels": parcels,
         "parcels_dropped_for_nan": data.dropped_parcels,
@@ -124,7 +141,7 @@ def run_states(root, config=StateConfig()):
         "scope": "state estimation and state-specific connectivity only",
         "elapsed_s": round(time.time() - start, 1),
     }
-    (analysis / f"dfc_meta{suffix}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    (out / f"dfc_meta{suffix}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     print(f"Saved {output.name}, state quality and metadata; {time.time()-start:.0f}s")
     return output
 

@@ -26,8 +26,8 @@ def run_script(name, root, *args):
 
 
 def test_state_windows_and_centroids_follow_subject_ids(tmp_path):
-    analysis = tmp_path / "analysis"
-    analysis.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
     rng = np.random.default_rng(7)
     ts = rng.normal(size=(2, 80, 8))
     for subject in ts:
@@ -36,16 +36,16 @@ def test_state_windows_and_centroids_follow_subject_ids(tmp_path):
         subject[:40, 4:] += 2 * latent[:40, 1:2]
         subject[40:] += 2 * latent[40:, 2:3]
     subjects = np.array(["sample-a", "sample-b"])
-    np.savez(analysis / "timeseries_all.npz", ts=ts, subjects=subjects,
+    np.savez(data_dir / "timeseries_all.npz", ts=ts, subjects=subjects,
              parcels=np.array([f"roi-{i}" for i in range(8)]))
     pd.DataFrame({"subject": subjects[::-1], "group": ["CUD", "HC"],
                   "age": [30, 35], "sex": [1, 2], "educ_yr": [12, 14],
                   "mean_fd": [.1, .2]}).to_csv(
-        analysis / "covariates.tsv", sep="\t", index=False)
+        data_dir / "covariates.tsv", sep="\t", index=False)
 
     run_script("states.py", tmp_path, 8, 5, 0, 1, "all")
 
-    with np.load(analysis / "dfc_states_all.npz") as output:
+    with np.load(data_dir / "dfc_states_all.npz") as output:
         assert output["subjects"].tolist() == subjects[::-1].tolist()
         assert output["labels"].shape == (2, 54)  # 80 - 5 discarded - 22 + 1
         for row, subject in enumerate(output["subjects"]):
@@ -61,14 +61,14 @@ def test_state_windows_and_centroids_follow_subject_ids(tmp_path):
                 expected = np.mean(np.array(windows)[labels == state], axis=0)
                 np.testing.assert_allclose(output["centroids"][row, state], expected,
                                            atol=5e-7, rtol=5e-6)
-    meta = json.loads((analysis / "dfc_meta_all.json").read_text())
+    meta = json.loads((data_dir / "dfc_meta_all.json").read_text())
     assert (meta["n"], meta["timepoints"], meta["windows"], meta["parcels"]) == (2, 75, 54, 8)
 
 
 @pytest.mark.parametrize("signal", [0, 1], ids=["null", "signed-components"])
 def test_nbs_signed_components_and_adjusted_statistics(tmp_path, signal):
-    analysis = tmp_path / "analysis"
-    analysis.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
     rng = np.random.default_rng(21)
     n = 30
     subjects = np.array([f"sample-{i:02d}" for i in range(n)])
@@ -89,23 +89,23 @@ def test_nbs_signed_components_and_adjusted_statistics(tmp_path, signal):
     matrices[:, 0, upper[0], upper[1]] = values
     matrices[:, 0, upper[1], upper[0]] = values
     order = rng.permutation(n)
-    np.savez(analysis / "dfc_states_all.npz", subjects=subjects[order],
+    np.savez(data_dir / "dfc_states_all.npz", subjects=subjects[order],
              parcels=parcels, centroids=matrices[order])
-    cov.iloc[rng.permutation(n)].to_csv(analysis / "covariates.tsv", sep="\t", index=False)
+    cov.iloc[rng.permutation(n)].to_csv(data_dir / "covariates.tsv", sep="\t", index=False)
     pd.DataFrame({"name": parcels, "network_label": ["Default"] * 5}).to_csv(
-        analysis / "parcels_cortex.tsv", sep="\t", index=False)
+        data_dir / "parcels_cortex.tsv", sep="\t", index=False)
 
     run_script("nbs.py", tmp_path, 19, .01, "age,sex,educ_yr,mean_fd", "noz", "integrated", "all")
 
     suffix = "_dfc_integrated_all_a001"
-    report = json.loads((analysis / f"baseline_nbs_summary{suffix}.json").read_text())
-    null = np.load(analysis / f"baseline_nbs_null_maxsize{suffix}.npy")
+    report = json.loads((data_dir / f"baseline_nbs_summary{suffix}.json").read_text())
+    null = np.load(data_dir / f"baseline_nbs_null_maxsize{suffix}.npy")
     assert (report["n"], report["n_hc"], report["n_cud"]) == (30, 15, 15)
     assert report["fisher_z"] is False
     assert null.shape == (2, 19)
     if not signal:
         assert report["components"] == []
-        assert not (analysis / f"baseline_nbs_edges{suffix}.tsv").exists()
+        assert not (data_dir / f"baseline_nbs_edges{suffix}.tsv").exists()
         return
 
     components = {component["sign"]: component for component in report["components"]}
@@ -121,7 +121,7 @@ def test_nbs_signed_components_and_adjusted_statistics(tmp_path, signal):
     variance = np.sum((values - design @ beta) ** 2, axis=0) / (n - design.shape[1])
     expected_t = beta[1] / np.sqrt(variance * np.linalg.inv(design.T @ design)[1, 1])
     expected_t = dict(zip(zip(upper[0], upper[1]), expected_t))
-    edges = pd.read_csv(analysis / f"baseline_nbs_edges{suffix}.tsv", sep="\t")
+    edges = pd.read_csv(data_dir / f"baseline_nbs_edges{suffix}.tsv", sep="\t")
     assert len(edges) == 4
     for edge in edges.itertuples():
         pair = (int(edge.node_i[4:]), int(edge.node_j[4:]))

@@ -44,7 +44,13 @@ class Edges:
 
 
 def fit_design(Y, Z):
-    """Residualize edges on Z and keep what the group contrast needs."""
+    """Residualize edges on Z and keep what the group contrast needs.
+
+    Raises:
+        ValueError: If the design has as many terms as subjects; it would be singular.
+    """
+    if Z.shape[1] >= len(Y):
+        raise ValueError(f"Need more subjects than model terms: n={len(Y)}, terms={Z.shape[1]}")
     hat = Z @ np.linalg.inv(Z.T @ Z) @ Z.T
     Yr = Y - hat @ Y
     return Design(Yr=Yr, ssr=(Yr ** 2).sum(axis=0), hat=hat, dof=len(Y) - Z.shape[1] - 1)
@@ -55,7 +61,7 @@ def load_edges(root, config=NbsConfig()):
     root = Path(root)
     cov = read_covariates(root)
     if config.state:
-        archive = np.load(root / "analysis"
+        archive = np.load(root / "data"
                           / f"dfc_states{'_all' if config.all_parcels else ''}.npz",
                           allow_pickle=True)
         parcels = list(archive["parcels"])
@@ -67,7 +73,7 @@ def load_edges(root, config=NbsConfig()):
         fc[hit] = cent[[pos[s] for s in cov.loc[hit, "subject"]]]
         avail = np.isfinite(fc[:, 0, 0])[:, None]
     else:
-        archive = np.load(root / "analysis" / "fc_matrices.npz", allow_pickle=True)
+        archive = np.load(root / "data" / "fc_matrices.npz", allow_pickle=True)
         fc, avail, parcels = archive["fc"], archive["available"], list(archive["parcels"])
     return fc, avail, parcels, cov
 
@@ -88,19 +94,30 @@ def components(sel, edges):
     return out
 
 
+def analysis_rows(cov, avail, covariates):
+    """Rows with a complete graph and complete covariates, plus their group labels."""
+    keep, nums = complete_cases(cov, covariates)
+    rows = np.where(avail.all(axis=1) & keep)[0]
+    return rows, cov["group"].to_numpy()[rows], nums
+
+
+def observed_sides(t, edges, t_crit):
+    """Suprathreshold edges per sign, with their connected components."""
+    sel = {s: np.where(s * t > t_crit)[0] for s in SIGNS}
+    return sel, {s: components(sel[s], edges) for s in SIGNS}
+
+
 def run_nbs(root=".", config=NbsConfig()):
     """Run the group comparison and write summary, edge table and null distribution."""
-    analysis = Path(root) / "analysis"
+    out = Path(root) / "data"
     fc, avail, parcels, cov = load_edges(root, config)
-    networks = pd.read_csv(analysis / "parcels_cortex.tsv", sep="\t")
+    networks = pd.read_csv(out / "parcels_cortex.tsv", sep="\t")
     net = dict(zip(networks["name"], networks["network_label"]))
 
-    keep, nums = complete_cases(cov, config.covariates)
-    rows = np.where(avail.all(axis=1) & keep)[0]
-    groups = cov["group"].to_numpy()
+    rows, groups, nums = analysis_rows(cov, avail, config.covariates)
     edges = Edges(np.triu_indices(len(parcels), k=1), len(parcels))
     print(f"完整图 + 协变量完整: n={len(rows)}"
-          f"（HC {int((groups[rows] == 'HC').sum())} / CUD {int((groups[rows] == 'CUD').sum())}）"
+          f"（HC {int((groups == 'HC').sum())} / CUD {int((groups == 'CUD').sum())}）"
           f"  节点 {len(parcels)}  边 {len(edges.index[0])}")
     print(f"边阈值 alpha={config.alpha_edge}   Fisher-z={'on' if config.fisher_z else 'off'}"
           f"   n_perm={config.n_perm}   协变量={config.covariates}")
@@ -118,15 +135,10 @@ def run_nbs(root=".", config=NbsConfig()):
     t_crit = stats.t.ppf(1 - config.alpha_edge / 2, model.dof)
     print(f"t_crit={t_crit:.4f}")
 
-    def sides(t):
-        """Suprathreshold edges per sign, and their components."""
-        sel = {s: np.where(s * t > t_crit)[0] for s in SIGNS}
-        return sel, {s: components(sel[s], edges) for s in SIGNS}
-
-    group = (groups[rows] == "CUD").astype(float)
+    group = (groups == "CUD").astype(float)
     start = time.time()
     t_obs = model.edge_t(group)
-    sel, found = sides(t_obs)
+    sel, found = observed_sides(t_obs, edges, t_crit)
     for s in SIGNS:
         big = max((c.size for c in found[s]), default=0)
         print(f"观测[{'+' if s > 0 else '-'}]: 超阈边 {sel[s].size:4d}"
@@ -137,7 +149,7 @@ def run_nbs(root=".", config=NbsConfig()):
     null_max = {s: np.empty(config.n_perm, dtype=int) for s in SIGNS}
     start = time.time()
     for p in range(config.n_perm):
-        _, permuted = sides(model.edge_t(rng.permutation(group)))
+        _, permuted = observed_sides(model.edge_t(rng.permutation(group)), edges, t_crit)
         for s in SIGNS:
             null_max[s][p] = max((c.size for c in permuted[s]), default=0)
         if (p + 1) % 2000 == 0:
@@ -181,16 +193,16 @@ def run_nbs(root=".", config=NbsConfig()):
         pd.DataFrame(edges_out, columns=["node_i", "node_j", "network_i", "network_j",
                                          "t", "sign"]) \
             .sort_values("t", key=abs, ascending=False) \
-            .to_csv(analysis / f"baseline_nbs_edges{suffix}.tsv", sep="\t", index=False)
+            .to_csv(out / f"baseline_nbs_edges{suffix}.tsv", sep="\t", index=False)
 
     significant = [c for c in report["components"] if c["p_fwe"] < 0.05]
     print(f"\nFWE p<0.05 的分量: {len(significant)}"
           + (f"  最大 {significant[0]['sign']}{significant[0]['n_edges']} 条边"
              f" / {significant[0]['n_nodes']} 节点" if significant else ""))
 
-    (analysis / f"baseline_nbs_summary{suffix}.json").write_text(
+    (out / f"baseline_nbs_summary{suffix}.json").write_text(
         json.dumps(report, indent=2), encoding="utf-8")
-    np.save(analysis / f"baseline_nbs_null_maxsize{suffix}.npy",
+    np.save(out / f"baseline_nbs_null_maxsize{suffix}.npy",
             np.stack([null_max[s] for s in SIGNS]))
     print(f"已写出 baseline_nbs_summary{suffix}.json / baseline_nbs_edges{suffix}.tsv "
           f"/ baseline_nbs_null_maxsize{suffix}.npy")

@@ -9,28 +9,27 @@ Parcel time series → sliding-window FC → cartographic profiles → integrate
 With [uv](https://docs.astral.sh/uv/) installed:
 
 ```bash
-uv sync --locked
-uv run --locked python -m cud_connect all --cpus 4
+uv run python -m cud_connect all
 ```
 
 Run one stage with `python -m cud_connect states` or `python -m cud_connect nbs`;
 NBS requires the saved state outputs.
 
-Run the small synthetic-data tests with `uv run --locked pytest -q`.
+Run the small synthetic-data tests with `uv run pytest -q`.
 
 ## Layout
 
 `cud_connect/config.py` holds the analysis parameters, `data.py` the sample selection
 and loaders, `states.py` the cartographic profiles and state estimation, `nbs.py` the
-network-based statistic, and `cli.py` the `python -m cud_connect` entry point. The
+network-based statistic, and `__main__.py` the `python -m cud_connect` entry point. The
 top-level `states.py` and `nbs.py` are thin compatibility shims for the original
 positional-argument scripts.
 
 ## Data and outputs
 
-`analysis/` contains XCP-D parcel time series, covariates and network labels derived from [SUDMEX-CONN, ds003346 v1.1.2](https://openneuro.org/datasets/ds003346/versions/1.1.2). Retained sample: 118 participants (54 HC, 64 CUD), 226 parcels, 295 frames.
+`data/` contains XCP-D parcel time series, covariates and network labels derived from [SUDMEX-CONN, ds003346 v1.1.2](https://openneuro.org/datasets/ds003346/versions/1.1.2). Retained sample: 118 participants (54 HC, 64 CUD), 226 parcels, 295 frames.
 
-Outputs are saved in `analysis/`: state labels and mean FC (`dfc_states_all.npz`), state quality, NBS summaries, edge tables and permutation distributions.
+Outputs are saved in `data/`: state labels and mean FC (`dfc_states_all.npz`), state quality, NBS summaries, edge tables and permutation distributions.
 
 ## Method
 

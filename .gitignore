@@ -10,8 +10,8 @@ venv/
 *.log
 .DS_Store
 Thumbs.db
-/analysis/*
-!/analysis/timeseries_all.npz
-!/analysis/covariates.tsv
-!/analysis/parcels_cortex.tsv
+/data/*
+!/data/timeseries_all.npz
+!/data/covariates.tsv
+!/data/parcels_cortex.tsv
 .workbuddy/
