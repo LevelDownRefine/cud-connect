@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -36,6 +37,8 @@ jobs:
           cache-dependency-glob: uv.lock
       - name: Install locked dependencies
         run: uv sync --locked
+      - name: Lint
+        run: uv run --locked ruff check .
       - name: Check entry point
         run: uv run --locked python main.py --help
       - name: Run synthetic tests

@@ -1,9 +1,9 @@
 """Small synthetic integration tests; no study data or full analysis runs."""
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -11,7 +11,6 @@ import pytest
 
 from cud_connect import nbs
 from cud_connect.config import NbsConfig
-
 
 REPO = Path(__file__).resolve().parents[1]
 
