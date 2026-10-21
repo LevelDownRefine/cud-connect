@@ -1,18 +1,13 @@
-"""Network-based statistic for group differences with covariate adjustment."""
+"""Network-based statistic for a two-group comparison with covariate adjustment."""
 
 from dataclasses import dataclass
-import json
-from pathlib import Path
-import time
 
 import numpy as np
-import pandas as pd
 from scipy import stats
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
-from .config import COVARIATES, NbsConfig
-from .data import complete_cases, read_covariates
+from .config import NbsConfig
 
 SIGNS = (1, -1)          # positive and negative components are kept apart
 
@@ -42,6 +37,40 @@ class Edges:
     index: tuple[np.ndarray, np.ndarray]
     n_nodes: int
 
+    @classmethod
+    def complete(cls, n_nodes):
+        """Every pair of distinct nodes."""
+        return cls(np.triu_indices(n_nodes, k=1), n_nodes)
+
+    def values(self, fc, rows=None):
+        """Edge-wise values of a symmetric FC stack, shape (len(rows), n_edges)."""
+        stack = fc if rows is None else fc[rows]
+        return stack[:, self.index[0], self.index[1]].astype(np.float64)
+
+    def nodes_of(self, selection):
+        """Node index covered by a set of edge indices."""
+        return np.unique(np.concatenate([self.index[0][selection], self.index[1][selection]]))
+
+
+@dataclass(frozen=True)
+class Nbs:
+    """Group comparison result; components are edge-index arrays per sign."""
+
+    n: int
+    n_hc: int
+    n_cud: int
+    dof: int
+    t_crit: float
+    t_values: np.ndarray
+    edges: Edges
+    selections: dict
+    components: dict
+    null_max: dict
+
+    def p_fwe(self, sign, size, n_perm):
+        """Family-wise p-value of a component of `size` edges on one side."""
+        return (1 + int(np.sum(self.null_max[sign] >= size))) / (1 + n_perm)
+
 
 def fit_design(Y, Z):
     """Residualize edges on Z and keep what the group contrast needs.
@@ -54,28 +83,6 @@ def fit_design(Y, Z):
     hat = Z @ np.linalg.inv(Z.T @ Z) @ Z.T
     Yr = Y - hat @ Y
     return Design(Yr=Yr, ssr=(Yr ** 2).sum(axis=0), hat=hat, dof=len(Y) - Z.shape[1] - 1)
-
-
-def load_edges(root, config=NbsConfig()):
-    """Return (fc, avail, parcels, cov) for the requested source."""
-    root = Path(root)
-    cov = read_covariates(root)
-    if config.state:
-        archive = np.load(root / "data"
-                          / f"dfc_states{'_all' if config.all_parcels else ''}.npz",
-                          allow_pickle=True)
-        parcels = list(archive["parcels"])
-        cent = archive["centroids"][:, {"integrated": 0, "segregated": 1}[config.state]]
-        # The archive holds only the analysis sample, so realign by subject name.
-        pos = {s: i for i, s in enumerate(archive["subjects"])}
-        fc = np.full((len(cov),) + cent.shape[1:], np.nan)
-        hit = cov["subject"].isin(pos).to_numpy()
-        fc[hit] = cent[[pos[s] for s in cov.loc[hit, "subject"]]]
-        avail = np.isfinite(fc[:, 0, 0])[:, None]
-    else:
-        archive = np.load(root / "data" / "fc_matrices.npz", allow_pickle=True)
-        fc, avail, parcels = archive["fc"], archive["available"], list(archive["parcels"])
-    return fc, avail, parcels, cov
 
 
 def components(sel, edges):
@@ -94,141 +101,40 @@ def components(sel, edges):
     return out
 
 
-def analysis_rows(cov, avail, covariates):
-    """Rows with a complete graph and complete covariates, plus their group labels."""
-    keep, nums = complete_cases(cov, covariates)
-    rows = np.where(avail.all(axis=1) & keep)[0]
-    return rows, cov["group"].to_numpy()[rows], nums
-
-
 def observed_sides(t, edges, t_crit):
     """Suprathreshold edges per sign, with their connected components."""
     sel = {s: np.where(s * t > t_crit)[0] for s in SIGNS}
     return sel, {s: components(sel[s], edges) for s in SIGNS}
 
 
-def run_nbs(root=".", config=NbsConfig()):
-    """Run the group comparison and write summary, edge table and null distribution."""
-    out = Path(root) / "data"
-    fc, avail, parcels, cov = load_edges(root, config)
-    networks = pd.read_csv(out / "parcels_cortex.tsv", sep="\t")
-    net = dict(zip(networks["name"], networks["network_label"]))
+def nbs_test(Y, group, covariates, edges, config=NbsConfig(), seed=0):
+    """Edge-wise t, suprathreshold components and their permutation null.
 
-    rows, groups, nums = analysis_rows(cov, avail, config.covariates)
-    edges = Edges(np.triu_indices(len(parcels), k=1), len(parcels))
-    print(f"完整图 + 协变量完整: n={len(rows)}"
-          f"（HC {int((groups == 'HC').sum())} / CUD {int((groups == 'CUD').sum())}）"
-          f"  节点 {len(parcels)}  边 {len(edges.index[0])}")
-    print(f"边阈值 alpha={config.alpha_edge}   Fisher-z={'on' if config.fisher_z else 'off'}"
-          f"   n_perm={config.n_perm}   协变量={config.covariates}")
-
-    Y = fc[rows[:, None], edges.index[0], edges.index[1]].astype(np.float64)
+    Args:
+        Y: (subjects, edges) values; Fisher-z transformed when `config.fisher_z`.
+        group: (subjects,) coded 1 for the patient group and 0 for controls.
+        covariates: (subjects, terms) nuisance regressors, without the intercept.
+        edges: pair index used to build components.
+        config: permutation count and edge threshold.
+        seed: permutation seed.
+    """
+    Y = np.asarray(Y, dtype=float)
+    group = np.asarray(group, dtype=float)
     if config.fisher_z:
         Y = np.arctanh(np.clip(Y, -1 + 1e-7, 1 - 1e-7))
-    n = len(rows)
-    print(f"Y {Y.shape}  NaN {int((~np.isfinite(Y)).sum())}")
-
-    Z = np.column_stack([np.ones(n)] + [nums[c][rows] for c in config.covariates])
+    Z = np.column_stack([np.ones(len(Y)), np.asarray(covariates, dtype=float)])
     model = fit_design(Y, Z)
-    print(f"残差化完成  dof={model.dof}")
-
     t_crit = stats.t.ppf(1 - config.alpha_edge / 2, model.dof)
-    print(f"t_crit={t_crit:.4f}")
-
-    group = (groups == "CUD").astype(float)
-    start = time.time()
     t_obs = model.edge_t(group)
-    sel, found = observed_sides(t_obs, edges, t_crit)
-    for s in SIGNS:
-        big = max((c.size for c in found[s]), default=0)
-        print(f"观测[{'+' if s > 0 else '-'}]: 超阈边 {sel[s].size:4d}"
-              f"  分量 {len(found[s]):3d}  最大分量 {big:4d} 条边")
-    print(f"  ({time.time() - start:.1f}s)")
+    selections, observed = observed_sides(t_obs, edges, t_crit)
 
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     null_max = {s: np.empty(config.n_perm, dtype=int) for s in SIGNS}
-    start = time.time()
     for p in range(config.n_perm):
         _, permuted = observed_sides(model.edge_t(rng.permutation(group)), edges, t_crit)
         for s in SIGNS:
             null_max[s][p] = max((c.size for c in permuted[s]), default=0)
-        if (p + 1) % 2000 == 0:
-            print(f"   置换 {p + 1}/{config.n_perm}  ({time.time() - start:.0f}s)", flush=True)
-    print(f"置换完成 {time.time() - start:.0f}s")
-    for s in SIGNS:
-        tag = "+" if s > 0 else "-"
-        print(f"  零分布[{tag}]: 中位 {np.median(null_max[s]):.0f}"
-              f"  p95 {np.percentile(null_max[s], 95):.0f}  max {null_max[s].max():.0f}")
 
-    report = {"n": n, "n_hc": int((group == 0).sum()), "n_cud": int((group == 1).sum()),
-              "n_perm": config.n_perm, "alpha_edge": config.alpha_edge,
-              "fisher_z": bool(config.fisher_z), "t_crit": float(t_crit),
-              "covariates": list(config.covariates), "nodes": len(parcels),
-              "edges": int(len(edges.index[0])), "components": []}
-
-    print(f"\n{'#':>3} {'边数':>6} {'节点':>5} {'sum t':>8} {'p(FWE)':>8}  网络构成")
-    edges_out = []
-    for s in SIGNS:
-        tag = "+" if s > 0 else "-"
-        for k, c in enumerate(sorted(found[s], key=lambda x: -x.size)):
-            nodes = np.unique(np.concatenate([edges.index[0][c], edges.index[1][c]]))
-            p_fwe = (1 + np.sum(null_max[s] >= c.size)) / (1 + config.n_perm)
-            nets = pd.Series([net.get(parcels[i], "subcortical") for i in nodes]).value_counts()
-            print(f"{tag}{k + 1:>2} {c.size:>6} {nodes.size:>5} {t_obs[c].sum():>+8.1f} "
-                  f"{p_fwe:>8.4f}  " + " ".join(f"{a}:{v}" for a, v in nets.items()))
-            report["components"].append({
-                "sign": tag, "n_edges": int(c.size), "n_nodes": int(nodes.size),
-                "sum_t": float(t_obs[c].sum()), "p_fwe": float(p_fwe),
-                "networks": {a: int(v) for a, v in nets.items()},
-                "nodes": [parcels[i] for i in nodes],
-            })
-            for e in c:
-                i, j = edges.index[0][e], edges.index[1][e]
-                edges_out.append((parcels[i], parcels[j],
-                                  net.get(parcels[i], "subcortical"),
-                                  net.get(parcels[j], "subcortical"), t_obs[e], tag))
-
-    suffix = config.suffix()
-    if edges_out:
-        pd.DataFrame(edges_out, columns=["node_i", "node_j", "network_i", "network_j",
-                                         "t", "sign"]) \
-            .sort_values("t", key=abs, ascending=False) \
-            .to_csv(out / f"baseline_nbs_edges{suffix}.tsv", sep="\t", index=False)
-
-    significant = [c for c in report["components"] if c["p_fwe"] < 0.05]
-    print(f"\nFWE p<0.05 的分量: {len(significant)}"
-          + (f"  最大 {significant[0]['sign']}{significant[0]['n_edges']} 条边"
-             f" / {significant[0]['n_nodes']} 节点" if significant else ""))
-
-    (out / f"baseline_nbs_summary{suffix}.json").write_text(
-        json.dumps(report, indent=2), encoding="utf-8")
-    np.save(out / f"baseline_nbs_null_maxsize{suffix}.npy",
-            np.stack([null_max[s] for s in SIGNS]))
-    print(f"已写出 baseline_nbs_summary{suffix}.json / baseline_nbs_edges{suffix}.tsv "
-          f"/ baseline_nbs_null_maxsize{suffix}.npy")
-    return report
-
-
-def main(argv=None):
-    """Compatibility CLI for the original nbs.py positional arguments."""
-    import argparse
-
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("root", nargs="?", default=".", type=Path)
-    parser.add_argument("n_perm", nargs="?", default=10000, type=int)
-    parser.add_argument("alpha_edge", nargs="?", default=0.05, type=float)
-    parser.add_argument("covariates", nargs="?", default=",".join(COVARIATES))
-    parser.add_argument("z", nargs="?", default="z",
-                        help='"noz" keeps the values as they are')
-    parser.add_argument("state", nargs="?", choices=["integrated", "segregated"])
-    parser.add_argument("parcels", nargs="?", choices=["all"])
-    args = parser.parse_args(argv)
-    run_nbs(args.root, NbsConfig(
-        state=args.state, n_perm=args.n_perm, alpha_edge=args.alpha_edge,
-        fisher_z=args.z.lower() not in ("0", "no", "noz", "false"),
-        all_parcels=args.parcels == "all",
-        covariates=tuple(args.covariates.split(","))))
-
-
-if __name__ == "__main__":
-    main()
+    return Nbs(n=len(Y), n_hc=int((group == 0).sum()), n_cud=int((group == 1).sum()),
+               dof=model.dof, t_crit=float(t_crit), t_values=t_obs, edges=edges,
+               selections=selections, components=observed, null_max=null_max)

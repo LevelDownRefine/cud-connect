@@ -4,4 +4,4 @@ Pipeline: parcel time series -> sliding-window FC -> cartographic profiles ->
 integrated/segregated states -> state-specific network-based statistic.
 """
 
-__all__ = ["config", "data", "nbs", "states"]
+__all__ = ["config", "nbs", "states"]

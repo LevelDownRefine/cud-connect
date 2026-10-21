@@ -1,17 +1,22 @@
-"""Cartographic profiles, state estimation and state-output orchestration."""
+"""Cartographic profiles and integrated/segregated state estimation."""
 
-import argparse
-import json
+from dataclasses import dataclass
 from multiprocessing import Pool
-from pathlib import Path
-import time
 
 import bct
 import numpy as np
-import pandas as pd
 
-from .config import DUMMY, N_BINS, PC_RANGE, SEED, STEP_TR, WIN_TR, Z_RANGE, StateConfig
-from .data import load_timeseries
+from .config import N_BINS, PC_RANGE, SEED, STEP_TR, WIN_TR, Z_RANGE, StateConfig
+
+
+@dataclass(frozen=True)
+class States:
+    """Per-subject state labels and the mean FC of each state."""
+
+    labels: np.ndarray        # (subjects, windows), 0 = integrated
+    centroids: np.ndarray     # (subjects, 2, parcels, parcels), Fisher-z
+    silhouette: np.ndarray    # (subjects,)
+    counts: np.ndarray        # (subjects,) distinct states found
 
 
 def window_fc(subject_ts):
@@ -115,75 +120,32 @@ def _worker(job):
     return index, labels, centroids, silhouette, count
 
 
-def run_states(root, config=StateConfig()):
-    """Load time series, estimate each subject's states and save the outputs."""
-    if config.cpus < 1:
-        raise ValueError("cpus must be positive")
-    start = time.time()
-    data = load_timeseries(root, config)
-    n, frames, parcels = data.timeseries.shape
+def estimate(timeseries, config=StateConfig(), workers=1):
+    """Estimate states for every subject and stack the outputs.
+
+    Raises:
+        ValueError: If no subject is left, or if any centroid is not finite.
+    """
+    n, frames = timeseries.shape[:2]
     if n == 0:
-        raise ValueError("No subjects remain after sample selection")
+        raise ValueError("No subjects to estimate")
+    if workers < 1:
+        raise ValueError("workers must be positive")
     windows = len(range(0, frames - WIN_TR + 1, STEP_TR))
-    print(f"Subjects {n}; frames {frames}; parcels {parcels}; windows {windows}", flush=True)
-    jobs = [(index, subject_ts, config) for index, subject_ts in enumerate(data.timeseries)]
-    if config.cpus == 1:
+    jobs = [(index, subject_ts, config) for index, subject_ts in enumerate(timeseries)]
+    if workers == 1:
         results = map(_worker, jobs)
     else:
-        with Pool(min(config.cpus, n)) as pool:
+        with Pool(min(workers, n)) as pool:
             results = pool.map(_worker, jobs, chunksize=1)
+    parcels = timeseries.shape[2]
     labels = np.empty((n, windows), dtype=np.uint8)
     centroids = np.empty((n, 2, parcels, parcels), dtype=np.float32)
     silhouette = np.empty(n)
-    state_count = np.empty(n, dtype=int)
+    counts = np.empty(n, dtype=int)
     for index, lab, cent, score, count in results:
         labels[index], centroids[index] = lab, cent
-        silhouette[index], state_count[index] = score, count
-    degenerate = [data.subjects[i] for i in np.flatnonzero(state_count < 2)]
-    if degenerate or not np.isfinite(centroids).all():
-        raise ValueError(f"Invalid state centroids; single-state subjects: {degenerate}")
-    out = Path(root) / "data"
-    suffix = "_all" if config.all_parcels else ""
-    output = out / f"dfc_states{suffix}.npz"
-    np.savez_compressed(output, subjects=np.array(data.subjects), labels=labels,
-                        centroids=centroids, parcels=np.array(data.parcels))
-    pd.DataFrame({"subject": data.subjects, "silhouette": silhouette,
-                  "n_states": state_count}).to_csv(
-        out / f"dfc_state_quality{suffix}.tsv", sep="\t", index=False)
-    meta = {
-        "n": n, "timepoints": frames, "windows": windows, "parcels": parcels,
-        "parcels_dropped_for_nan": data.dropped_parcels,
-        "parcel_source": "all-256" if config.all_parcels else "cortical-only",
-        "win_tr": WIN_TR, "step_tr": STEP_TR, "dummy_volumes": DUMMY,
-        "louvain_B": "negative_asym", "louvain_repeats": 1, "louvain_seed": "shared",
-        "n_bins": config.n_bins, "kmeans_ninit": config.kmeans_ninit,
-        "kmeans_metric": config.metric, "seed": config.seed,
-        "n_subjects_single_state": len(degenerate),
-        "scope": "state estimation and state-specific connectivity only",
-        "elapsed_s": round(time.time() - start, 1),
-    }
-    (out / f"dfc_meta{suffix}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    print(f"Saved {output.name}, state quality and metadata; {time.time()-start:.0f}s")
-    return output
-
-
-def main(argv=None):
-    """Compatibility CLI for the original states.py positional arguments."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("root", nargs="?", default=".", type=Path)
-    parser.add_argument("n_bins", nargs="?", default=N_BINS, type=int)
-    parser.add_argument("n_init", nargs="?", default=300, type=int)
-    parser.add_argument("limit", nargs="?", default=0, type=int)
-    parser.add_argument("cpus", nargs="?", default=8, type=int)
-    parser.add_argument("parcels", nargs="?", choices=["all"])
-    parser.add_argument("--metric", choices=["correlation", "euclidean"], default="correlation")
-    parser.add_argument("--seed", type=int, default=SEED)
-    args = parser.parse_args(argv)
-    run_states(args.root, StateConfig(
-        n_bins=args.n_bins, kmeans_ninit=args.n_init, cpus=args.cpus,
-        all_parcels=args.parcels == "all", limit=args.limit,
-        metric=args.metric, seed=args.seed))
-
-
-if __name__ == "__main__":
-    main()
+        silhouette[index], counts[index] = score, count
+    if not np.isfinite(centroids).all():
+        raise ValueError("Invalid state centroids; check for single-state subjects")
+    return States(labels=labels, centroids=centroids, silhouette=silhouette, counts=counts)

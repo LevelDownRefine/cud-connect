@@ -13,12 +13,12 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 
 
-def run_script(name, root, *args):
+def run_stage(stage, root, *args):
     env = os.environ.copy()
     env.update(PYTHONIOENCODING="utf-8", OMP_NUM_THREADS="1",
                OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1")
     result = subprocess.run(
-        [sys.executable, str(REPO / name), str(root), *map(str, args)],
+        [sys.executable, str(REPO / "main.py"), stage, str(root), *map(str, args)],
         cwd=root, env=env, capture_output=True, text=True, encoding="utf-8",
         timeout=90,
     )
@@ -43,7 +43,7 @@ def test_state_windows_and_centroids_follow_subject_ids(tmp_path):
                   "mean_fd": [.1, .2]}).to_csv(
         data_dir / "covariates.tsv", sep="\t", index=False)
 
-    run_script("states.py", tmp_path, 8, 5, 0, 1, "all")
+    run_stage("states", tmp_path, 8, 5, 0, 1, "all")
 
     with np.load(data_dir / "dfc_states_all.npz") as output:
         assert output["subjects"].tolist() == subjects[::-1].tolist()
@@ -95,7 +95,7 @@ def test_nbs_signed_components_and_adjusted_statistics(tmp_path, signal):
     pd.DataFrame({"name": parcels, "network_label": ["Default"] * 5}).to_csv(
         data_dir / "parcels_cortex.tsv", sep="\t", index=False)
 
-    run_script("nbs.py", tmp_path, 19, .01, "age,sex,educ_yr,mean_fd", "noz", "integrated", "all")
+    run_stage("nbs", tmp_path, 19, .01, "age,sex,educ_yr,mean_fd", "noz", "integrated", "all")
 
     suffix = "_dfc_integrated_all_a001"
     report = json.loads((data_dir / f"baseline_nbs_summary{suffix}.json").read_text())
