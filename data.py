@@ -89,7 +89,7 @@ def load_state_fc(root, state, all_parcels=True):
     return fc, np.isfinite(fc[:, 0, 0])[:, None], parcels, cov
 
 
-def load_static_fc(root, all_parcels=True):
+def load_static_fc(root):
     """Window-mean FC matrices, for the run without state selection."""
     archive = np.load(Path(root) / "data" / "fc_matrices.npz", allow_pickle=True)
     return archive["fc"], archive["available"], list(archive["parcels"]), read_covariates(root)

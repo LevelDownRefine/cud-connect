@@ -123,8 +123,11 @@ def _worker(job):
 def estimate(timeseries, config=StateConfig(), workers=1):
     """Estimate states for every subject and stack the outputs.
 
+    A subject that collapses into a single state shows up as a NaN centroid and a
+    count below two; the caller knows the subject names and raises on it.
+
     Raises:
-        ValueError: If no subject is left, or if any centroid is not finite.
+        ValueError: If there are no subjects, or if `workers` is not positive.
     """
     n, frames = timeseries.shape[:2]
     if n == 0:
@@ -146,6 +149,4 @@ def estimate(timeseries, config=StateConfig(), workers=1):
     for index, lab, cent, score, count in results:
         labels[index], centroids[index] = lab, cent
         silhouette[index], counts[index] = score, count
-    if not np.isfinite(centroids).all():
-        raise ValueError("Invalid state centroids; check for single-state subjects")
     return States(labels=labels, centroids=centroids, silhouette=silhouette, counts=counts)

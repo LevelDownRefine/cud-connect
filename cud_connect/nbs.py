@@ -67,9 +67,10 @@ class Nbs:
     components: dict
     null_max: dict
 
-    def p_fwe(self, sign, size, n_perm):
+    def p_fwe(self, sign, size):
         """Family-wise p-value of a component of `size` edges on one side."""
-        return (1 + int(np.sum(self.null_max[sign] >= size))) / (1 + n_perm)
+        null = self.null_max[sign]
+        return (1 + int(np.sum(null >= size))) / (1 + len(null))
 
 
 def fit_design(Y, Z):
@@ -117,9 +118,14 @@ def compare(Y, group, covariates, edges, config=NbsConfig(), seed=0):
         edges: pair index used to build components.
         config: permutation count and edge threshold.
         seed: permutation seed.
+
+    Raises:
+        ValueError: If Y has non-finite values, or the design is singular.
     """
     Y = np.asarray(Y, dtype=float)
     group = np.asarray(group, dtype=float)
+    if not np.isfinite(Y).all():
+        raise ValueError(f"Y has {int((~np.isfinite(Y)).sum())} non-finite values")
     if config.fisher_z:
         Y = np.arctanh(np.clip(Y, -1 + 1e-7, 1 - 1e-7))
     Z = np.column_stack([np.ones(len(Y)), np.asarray(covariates, dtype=float)])
