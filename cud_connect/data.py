@@ -22,8 +22,8 @@ class TimeSeries:
 
 
 def read_covariates(root):
-    """Covariate table from `<root>/analysis/covariates.tsv`."""
-    return pd.read_csv(Path(root) / "analysis" / "covariates.tsv", sep="\t",
+    """Covariate table from `<root>/data/covariates.tsv`."""
+    return pd.read_csv(Path(root) / "data" / "covariates.tsv", sep="\t",
                        dtype={"sex": str})
 
 
@@ -44,7 +44,7 @@ def load_timeseries(root, config=StateConfig()):
     keep, _ = complete_cases(cov)
     cov = cov[keep].reset_index(drop=True)
     source = "timeseries_all.npz" if config.all_parcels else "timeseries.npz"
-    archive = np.load(Path(root) / "analysis" / source, allow_pickle=True)
+    archive = np.load(Path(root) / "data" / source, allow_pickle=True)
     values, names = archive["ts"], list(archive["subjects"])
     index = {name: i for i, name in enumerate(names)}
     missing = [s for s in cov["subject"] if s not in index]

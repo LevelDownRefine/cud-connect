@@ -14,51 +14,80 @@ from .config import DUMMY, N_BINS, PC_RANGE, SEED, STEP_TR, WIN_TR, Z_RANGE, Sta
 from .data import load_timeseries
 
 
-def profiles_one(subject_ts, n_bins=N_BINS):
-    """Return normalized cartographic profiles and Fisher-z FC per window."""
+def window_fc(subject_ts):
+    """Fisher-z correlation of every full window, shape (windows, parcels, parcels)."""
     subject_ts = np.asarray(subject_ts, dtype=float)
     if subject_ts.ndim != 2 or subject_ts.shape[0] < WIN_TR:
         raise ValueError("Time series must be frames x parcels with at least one full window")
-    fc, profiles = [], []
+    windows = []
     for start in range(0, subject_ts.shape[0] - WIN_TR + 1, STEP_TR):
-        block = subject_ts[start:start + WIN_TR]
-        matrix = np.corrcoef(block, rowvar=False)
+        matrix = np.corrcoef(subject_ts[start:start + WIN_TR], rowvar=False)
         matrix = np.arctanh(np.clip(matrix, -1 + 1e-7, 1 - 1e-7))
         np.fill_diagonal(matrix, 0.0)
-        communities, _ = bct.community_louvain(matrix, B="negative_asym", seed=SEED)
+        windows.append(matrix)
+    return np.asarray(windows)
+
+
+def cartographic(fc, n_bins=N_BINS, seed=SEED):
+    """Normalized participation-by-degree profile of each window, one row per window.
+
+    Trick around BCT's seeding: community_louvain builds a fresh RandomState from
+    `seed` on every call, so handing every window the same seed makes all windows
+    walk the same random sequence. This reproduces the earlier runs, but the Louvain
+    perturbations are then correlated across windows instead of independent.
+    """
+    rows = []
+    for matrix in fc:
+        communities, _ = bct.community_louvain(matrix, B="negative_asym", seed=seed)
         participation, _ = bct.participation_coef_sign(matrix, communities)
         degree = bct.module_degree_zscore(matrix, communities)
         histogram, _, _ = np.histogram2d(
             participation, degree, bins=n_bins, range=[PC_RANGE, Z_RANGE],
         )
-        profiles.append(histogram.ravel())
-        fc.append(matrix.astype(np.float32))
-    profiles = np.asarray(profiles, float)
+        rows.append(histogram.ravel())
+    profiles = np.asarray(rows, float)
     totals = profiles.sum(axis=1, keepdims=True)
     if (totals == 0).any():
         raise ValueError("A window has no nodes inside the cartographic profile ranges")
-    profiles /= totals
-    return profiles, np.asarray(fc)
+    return profiles / totals
 
 
-def one_subject(subject_ts, config=StateConfig()):
-    """Return profiles, FCs, labels, centroids, silhouette and state count."""
+def _embedding(profiles, metric):
+    """Map profiles to the unit sphere so Euclidean distance ranks like correlation.
+
+    sklearn's KMeans has no correlation metric. Centring each row and scaling it to
+    unit norm makes squared Euclidean distance equal 2 - 2r, so the assignment step
+    ranks exactly like correlation distance. Centroids stay plain means in that
+    space rather than spherical means, so this approximates correlation k-means.
+    """
+    if metric != "correlation":
+        return profiles
+    centered = profiles - profiles.mean(axis=1, keepdims=True)
+    return centered / np.maximum(np.linalg.norm(centered, axis=1, keepdims=True), 1e-12)
+
+
+def cluster_states(profiles, config=StateConfig()):
+    """K-means into two states; returns labels, silhouette and the distinct count."""
     from sklearn.cluster import KMeans
     from sklearn.metrics import silhouette_score
 
-    profiles, fc = profiles_one(subject_ts, config.n_bins)
     if len(profiles) < 2:
         raise ValueError("State estimation requires at least two windows")
-    model = KMeans(n_clusters=2, n_init=config.kmeans_ninit,
-                   random_state=SEED).fit(profiles)
-    labels = model.labels_
+    x = _embedding(profiles, config.metric)
+    labels = KMeans(n_clusters=2, n_init=config.kmeans_ninit,
+                    random_state=config.seed).fit_predict(x)
     count = int(np.unique(labels).size)
-    silhouette = (float(silhouette_score(profiles, labels))
+    silhouette = (float(silhouette_score(x, labels))
                   if 1 < count < len(labels) else np.nan)
-    centers = (PC_RANGE[0] + (np.arange(config.n_bins) + .5)
-               * (PC_RANGE[1] - PC_RANGE[0]) / config.n_bins)
+    return labels, silhouette, count
+
+
+def align_states(labels, profiles, fc, n_bins=N_BINS):
+    """Relabel so 0 = integrated, then average the window FC of each state."""
+    centers = (PC_RANGE[0] + (np.arange(n_bins) + .5)
+               * (PC_RANGE[1] - PC_RANGE[0]) / n_bins)
     mean_pc = [
-        (profiles[labels == state].reshape(-1, config.n_bins, config.n_bins).sum(axis=2)
+        (profiles[labels == state].reshape(-1, n_bins, n_bins).sum(axis=2)
          * centers).sum(axis=1).mean() if (labels == state).any() else np.nan
         for state in (0, 1)
     ]
@@ -68,6 +97,15 @@ def one_subject(subject_ts, config=StateConfig()):
     centroids = np.stack([fc[labels == state].mean(axis=0)
                           if (labels == state).any() else empty_centroid
                           for state in (0, 1)])
+    return labels, centroids
+
+
+def one_subject(subject_ts, config=StateConfig()):
+    """Return profiles, FCs, labels, centroids, silhouette and state count."""
+    fc = window_fc(subject_ts)
+    profiles = cartographic(fc, config.n_bins, config.seed)
+    labels, silhouette, count = cluster_states(profiles, config)
+    labels, centroids = align_states(labels, profiles, fc, config.n_bins)
     return profiles, fc, labels, centroids, silhouette, count
 
 
@@ -104,27 +142,27 @@ def run_states(root, config=StateConfig()):
     degenerate = [data.subjects[i] for i in np.flatnonzero(state_count < 2)]
     if degenerate or not np.isfinite(centroids).all():
         raise ValueError(f"Invalid state centroids; single-state subjects: {degenerate}")
-    analysis = Path(root) / "analysis"
+    out = Path(root) / "data"
     suffix = "_all" if config.all_parcels else ""
-    output = analysis / f"dfc_states{suffix}.npz"
+    output = out / f"dfc_states{suffix}.npz"
     np.savez_compressed(output, subjects=np.array(data.subjects), labels=labels,
                         centroids=centroids, parcels=np.array(data.parcels))
     pd.DataFrame({"subject": data.subjects, "silhouette": silhouette,
                   "n_states": state_count}).to_csv(
-        analysis / f"dfc_state_quality{suffix}.tsv", sep="\t", index=False)
+        out / f"dfc_state_quality{suffix}.tsv", sep="\t", index=False)
     meta = {
         "n": n, "timepoints": frames, "windows": windows, "parcels": parcels,
         "parcels_dropped_for_nan": data.dropped_parcels,
         "parcel_source": "all-256" if config.all_parcels else "cortical-only",
         "win_tr": WIN_TR, "step_tr": STEP_TR, "dummy_volumes": DUMMY,
-        "louvain_B": "negative_asym", "louvain_repeats": 1,
+        "louvain_B": "negative_asym", "louvain_repeats": 1, "louvain_seed": "shared",
         "n_bins": config.n_bins, "kmeans_ninit": config.kmeans_ninit,
-        "kmeans_metric": "Euclidean", "seed": SEED,
+        "kmeans_metric": config.metric, "seed": config.seed,
         "n_subjects_single_state": len(degenerate),
         "scope": "state estimation and state-specific connectivity only",
         "elapsed_s": round(time.time() - start, 1),
     }
-    (analysis / f"dfc_meta{suffix}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    (out / f"dfc_meta{suffix}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     print(f"Saved {output.name}, state quality and metadata; {time.time()-start:.0f}s")
     return output
 
@@ -138,10 +176,13 @@ def main(argv=None):
     parser.add_argument("limit", nargs="?", default=0, type=int)
     parser.add_argument("cpus", nargs="?", default=8, type=int)
     parser.add_argument("parcels", nargs="?", choices=["all"])
+    parser.add_argument("--metric", choices=["correlation", "euclidean"], default="correlation")
+    parser.add_argument("--seed", type=int, default=SEED)
     args = parser.parse_args(argv)
     run_states(args.root, StateConfig(
         n_bins=args.n_bins, kmeans_ninit=args.n_init, cpus=args.cpus,
-        all_parcels=args.parcels == "all", limit=args.limit))
+        all_parcels=args.parcels == "all", limit=args.limit,
+        metric=args.metric, seed=args.seed))
 
 
 if __name__ == "__main__":

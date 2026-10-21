@@ -19,6 +19,8 @@ class StateConfig:
     n_bins: int = N_BINS
     kmeans_ninit: int = 300
     cpus: int = 4
+    metric: str = "correlation"    # the paper clusters on correlation distance
+    seed: int = SEED
     all_parcels: bool = True
     limit: int = 0
 
