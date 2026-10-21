@@ -4,9 +4,12 @@ Minimal dynamic functional connectivity analysis in cocaine use disorder.
 
 Parcel time series → sliding-window FC → cartographic profiles → integrated/segregated states → state-specific NBS.
 
-## Run
+## Setup
+```bash
+uv sync
+```
 
-With [uv](https://docs.astral.sh/uv/) installed:
+## Run
 
 ```bash
 uv run python main.py all
@@ -26,7 +29,7 @@ layout and output naming — and `main.py` wires the two together and owns the C
 
 ## Data and outputs
 
-`data/` contains XCP-D parcel time series, covariates and network labels derived from [SUDMEX-CONN, ds003346 v1.1.2](https://openneuro.org/datasets/ds003346/versions/1.1.2). Retained sample: 118 participants (54 HC, 64 CUD), 226 parcels, 295 frames.
+`data/` contains XCP-D parcel time series, covariates and network labels derived from [SUDMEX-CONN](https://openneuro.org/datasets/ds003346/versions/1.1.2). Retained sample: 118 participants (54 HC, 64 CUD), 226 parcels, 295 frames.
 
 Outputs are saved in `data/`: state labels and mean FC (`dfc_states_all.npz`), state quality, NBS summaries, edge tables and permutation distributions.
 
