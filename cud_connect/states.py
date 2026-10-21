@@ -106,18 +106,17 @@ def align_states(labels, profiles, fc, n_bins=N_BINS):
 
 
 def one_subject(subject_ts, config=StateConfig()):
-    """Return profiles, FCs, labels, centroids, silhouette and state count."""
+    """Return the labels, centroids, silhouette and state count of one subject."""
     fc = window_fc(subject_ts)
     profiles = cartographic(fc, config.n_bins, config.seed)
     labels, silhouette, count = cluster_states(profiles, config)
     labels, centroids = align_states(labels, profiles, fc, config.n_bins)
-    return profiles, fc, labels, centroids, silhouette, count
+    return labels, centroids, silhouette, count
 
 
 def _worker(job):
     index, subject_ts, config = job
-    _, _, labels, centroids, silhouette, count = one_subject(subject_ts, config)
-    return index, labels, centroids, silhouette, count
+    return (index, *one_subject(subject_ts, config))
 
 
 def estimate(timeseries, config=StateConfig(), workers=1):
