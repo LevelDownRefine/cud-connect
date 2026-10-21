@@ -107,7 +107,7 @@ def observed_sides(t, edges, t_crit):
     return sel, {s: components(sel[s], edges) for s in SIGNS}
 
 
-def nbs_test(Y, group, covariates, edges, config=NbsConfig(), seed=0):
+def compare(Y, group, covariates, edges, config=NbsConfig(), seed=0):
     """Edge-wise t, suprathreshold components and their permutation null.
 
     Args:

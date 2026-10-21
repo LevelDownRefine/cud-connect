@@ -84,9 +84,9 @@ def run_nbs(root, config, *, state=None, all_parcels=False, covariates=None, see
     print(f"边阈值 alpha={config.alpha_edge}   Fisher-z={'on' if config.fisher_z else 'off'}"
           f"   n_perm={config.n_perm}   协变量={covariates}")
 
-    result = nbs_lib.nbs_test(Y, (groups == "CUD").astype(float),
-                              np.column_stack([nums[c][rows] for c in covariates]),
-                              edges, config, seed=seed)
+    result = nbs_lib.compare(Y, (groups == "CUD").astype(float),
+                             np.column_stack([nums[c][rows] for c in covariates]),
+                             edges, config, seed=seed)
     print(f"t_crit={result.t_crit:.4f}  dof={result.dof}")
     for sign in nbs_lib.SIGNS:
         biggest = max((c.size for c in result.components[sign]), default=0)
