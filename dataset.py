@@ -47,7 +47,7 @@ def load_timeseries(root, *, limit=0):
     cov = read_covariates(root)
     keep, _ = complete_cases(cov)
     cov = cov[keep].reset_index(drop=True)
-    archive = np.load(Path(root) / "data" / "timeseries_all.npz", allow_pickle=True)
+    archive = np.load(Path(root) / "data" / "timeseries_all.npz")
     values, names = archive["ts"], list(archive["subjects"])
     index = {name: i for i, name in enumerate(names)}
     missing = [s for s in cov["subject"] if s not in index]
@@ -76,7 +76,7 @@ def sample_rows(cov, avail, columns=COVARIATES):
 def load_state_fc(root, state):
     """Mean FC of one dynamic state, realigned to the covariate table."""
     cov = read_covariates(root)
-    archive = np.load(Path(root) / "data" / "dfc_states.npz", allow_pickle=True)
+    archive = np.load(Path(root) / "data" / "dfc_states.npz")
     parcels = list(archive["parcels"])
     cent = archive["centroids"][:, STATES[state]]
     # The archive holds only the analysis sample, so realign by subject name.
@@ -89,7 +89,7 @@ def load_state_fc(root, state):
 
 def load_static_fc(root):
     """Window-mean FC matrices, for the run without state selection."""
-    archive = np.load(Path(root) / "data" / "fc_matrices.npz", allow_pickle=True)
+    archive = np.load(Path(root) / "data" / "fc_matrices.npz")
     return archive["fc"], archive["available"], list(archive["parcels"]), read_covariates(root)
 
 

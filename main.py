@@ -22,7 +22,7 @@ for _key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-import data as dataset  # noqa: E402
+import dataset  # noqa: E402
 from cud_connect import nbs as nbs_lib  # noqa: E402
 from cud_connect import states as states_lib  # noqa: E402
 from cud_connect.config import (  # noqa: E402
