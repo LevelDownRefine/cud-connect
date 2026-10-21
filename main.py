@@ -71,7 +71,7 @@ def run_nbs(root, config, *, state=None, all_parcels=False, covariates=None, see
     if state:
         fc, avail, parcels, cov = dataset.load_state_fc(root, state, all_parcels)
     else:
-        fc, avail, parcels, cov = dataset.load_static_fc(root, all_parcels)
+        fc, avail, parcels, cov = dataset.load_static_fc(root)
     labels = pd.read_csv(Path(root) / "data" / "parcels_cortex.tsv", sep="\t")
     networks = dict(zip(labels["name"], labels["network_label"]))
 
@@ -110,7 +110,7 @@ def run_nbs(root, config, *, state=None, all_parcels=False, covariates=None, see
         tag = "+" if sign > 0 else "-"
         for k, component in enumerate(sorted(result.components[sign], key=lambda x: -x.size)):
             nodes = edges.nodes_of(component)
-            p_fwe = result.p_fwe(sign, component.size, config.n_perm)
+            p_fwe = result.p_fwe(sign, component.size)
             counts = pd.Series([networks.get(parcels[i], "subcortical")
                                 for i in nodes]).value_counts()
             print(f"{tag}{k + 1:>2} {component.size:>6} {nodes.size:>5} "
