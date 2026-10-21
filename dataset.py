@@ -38,7 +38,7 @@ def complete_cases(cov, columns=COVARIATES):
     return finite & ~cov["subject"].isin(EXCLUDE).to_numpy(), nums
 
 
-def load_timeseries(root, *, all_parcels=True, limit=0):
+def load_timeseries(root, *, limit=0):
     """Load the analysis sample in covariate order.
 
     Raises:
@@ -47,13 +47,12 @@ def load_timeseries(root, *, all_parcels=True, limit=0):
     cov = read_covariates(root)
     keep, _ = complete_cases(cov)
     cov = cov[keep].reset_index(drop=True)
-    source = "timeseries_all.npz" if all_parcels else "timeseries.npz"
-    archive = np.load(Path(root) / "data" / source, allow_pickle=True)
+    archive = np.load(Path(root) / "data" / "timeseries_all.npz")
     values, names = archive["ts"], list(archive["subjects"])
     index = {name: i for i, name in enumerate(names)}
     missing = [s for s in cov["subject"] if s not in index]
     if missing:
-        raise ValueError(f"Subjects missing from {source}: {missing}")
+        raise ValueError(f"Subjects missing from timeseries_all.npz: {missing}")
     if limit:
         cov = cov.iloc[:limit]
     ts = values[[index[s] for s in cov["subject"]]][:, DUMMY:, :].astype(np.float64)
@@ -74,11 +73,10 @@ def sample_rows(cov, avail, columns=COVARIATES):
     return rows, cov["group"].to_numpy()[rows], nums
 
 
-def load_state_fc(root, state, all_parcels=True):
+def load_state_fc(root, state):
     """Mean FC of one dynamic state, realigned to the covariate table."""
     cov = read_covariates(root)
-    suffix = "_all" if all_parcels else ""
-    archive = np.load(Path(root) / "data" / f"dfc_states{suffix}.npz", allow_pickle=True)
+    archive = np.load(Path(root) / "data" / "dfc_states.npz")
     parcels = list(archive["parcels"])
     cent = archive["centroids"][:, STATES[state]]
     # The archive holds only the analysis sample, so realign by subject name.
@@ -89,15 +87,18 @@ def load_state_fc(root, state, all_parcels=True):
     return fc, np.isfinite(fc[:, 0, 0])[:, None], parcels, cov
 
 
-def load_static_fc(root, all_parcels=True):
+def load_static_fc(root):
     """Window-mean FC matrices, for the run without state selection."""
-    archive = np.load(Path(root) / "data" / "fc_matrices.npz", allow_pickle=True)
+    archive = np.load(Path(root) / "data" / "fc_matrices.npz")
     return archive["fc"], archive["available"], list(archive["parcels"]), read_covariates(root)
 
 
-def output_suffix(state=None, *, alpha_edge=0.05, fisher_z=True, all_parcels=False):
-    """Output suffix that keeps threshold and state sweeps from overwriting each other."""
+def output_suffix(state=None, *, alpha_edge=0.05, fisher_z=True):
+    """Output suffix that keeps threshold and state sweeps from overwriting each other.
+
+    The `_noz` tag only applies without a state: state centroids are already Fisher-z.
+    """
     threshold = "" if alpha_edge == 0.05 else f"_a{alpha_edge:g}".replace(".", "")
     if state:
-        return f"_dfc_{state}" + ("_all" if all_parcels else "") + threshold
+        return f"_dfc_{state}" + threshold
     return ("" if fisher_z else "_noz") + threshold

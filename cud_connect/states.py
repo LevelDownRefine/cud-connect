@@ -106,25 +106,27 @@ def align_states(labels, profiles, fc, n_bins=N_BINS):
 
 
 def one_subject(subject_ts, config=StateConfig()):
-    """Return profiles, FCs, labels, centroids, silhouette and state count."""
+    """Return the labels, centroids, silhouette and state count of one subject."""
     fc = window_fc(subject_ts)
     profiles = cartographic(fc, config.n_bins, config.seed)
     labels, silhouette, count = cluster_states(profiles, config)
     labels, centroids = align_states(labels, profiles, fc, config.n_bins)
-    return profiles, fc, labels, centroids, silhouette, count
+    return labels, centroids, silhouette, count
 
 
 def _worker(job):
     index, subject_ts, config = job
-    _, _, labels, centroids, silhouette, count = one_subject(subject_ts, config)
-    return index, labels, centroids, silhouette, count
+    return (index, *one_subject(subject_ts, config))
 
 
 def estimate(timeseries, config=StateConfig(), workers=1):
     """Estimate states for every subject and stack the outputs.
 
+    A subject that collapses into a single state shows up as a NaN centroid and a
+    count below two; the caller knows the subject names and raises on it.
+
     Raises:
-        ValueError: If no subject is left, or if any centroid is not finite.
+        ValueError: If there are no subjects, or if `workers` is not positive.
     """
     n, frames = timeseries.shape[:2]
     if n == 0:
@@ -146,6 +148,4 @@ def estimate(timeseries, config=StateConfig(), workers=1):
     for index, lab, cent, score, count in results:
         labels[index], centroids[index] = lab, cent
         silhouette[index], counts[index] = score, count
-    if not np.isfinite(centroids).all():
-        raise ValueError("Invalid state centroids; check for single-state subjects")
     return States(labels=labels, centroids=centroids, silhouette=silhouette, counts=counts)

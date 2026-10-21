@@ -43,9 +43,9 @@ def test_state_windows_and_centroids_follow_subject_ids(tmp_path):
                   "mean_fd": [.1, .2]}).to_csv(
         data_dir / "covariates.tsv", sep="\t", index=False)
 
-    run_stage("states", tmp_path, 8, 5, 0, 1, "all")
+    run_stage("states", tmp_path, 8, 5, 0, 1)
 
-    with np.load(data_dir / "dfc_states_all.npz") as output:
+    with np.load(data_dir / "dfc_states.npz") as output:
         assert output["subjects"].tolist() == subjects[::-1].tolist()
         assert output["labels"].shape == (2, 54)  # 80 - 5 discarded - 22 + 1
         for row, subject in enumerate(output["subjects"]):
@@ -61,7 +61,7 @@ def test_state_windows_and_centroids_follow_subject_ids(tmp_path):
                 expected = np.mean(np.array(windows)[labels == state], axis=0)
                 np.testing.assert_allclose(output["centroids"][row, state], expected,
                                            atol=5e-7, rtol=5e-6)
-    meta = json.loads((data_dir / "dfc_meta_all.json").read_text())
+    meta = json.loads((data_dir / "dfc_meta.json").read_text())
     assert (meta["n"], meta["timepoints"], meta["windows"], meta["parcels"]) == (2, 75, 54, 8)
 
 
@@ -89,15 +89,15 @@ def test_nbs_signed_components_and_adjusted_statistics(tmp_path, signal):
     matrices[:, 0, upper[0], upper[1]] = values
     matrices[:, 0, upper[1], upper[0]] = values
     order = rng.permutation(n)
-    np.savez(data_dir / "dfc_states_all.npz", subjects=subjects[order],
+    np.savez(data_dir / "dfc_states.npz", subjects=subjects[order],
              parcels=parcels, centroids=matrices[order])
     cov.iloc[rng.permutation(n)].to_csv(data_dir / "covariates.tsv", sep="\t", index=False)
     pd.DataFrame({"name": parcels, "network_label": ["Default"] * 5}).to_csv(
         data_dir / "parcels_cortex.tsv", sep="\t", index=False)
 
-    run_stage("nbs", tmp_path, 19, .01, "age,sex,educ_yr,mean_fd", "noz", "integrated", "all")
+    run_stage("nbs", tmp_path, 19, .01, "age,sex,educ_yr,mean_fd", "noz", "integrated")
 
-    suffix = "_dfc_integrated_all_a001"
+    suffix = "_dfc_integrated_a001"
     report = json.loads((data_dir / f"baseline_nbs_summary{suffix}.json").read_text())
     null = np.load(data_dir / f"baseline_nbs_null_maxsize{suffix}.npy")
     assert (report["n"], report["n_hc"], report["n_cud"]) == (30, 15, 15)

@@ -24,14 +24,14 @@ Run the small synthetic-data tests with `uv run pytest -q`.
 
 `cud_connect/` holds the algorithms and knows nothing about this dataset: `config.py`
 the parameters, `states.py` the cartographic profiles and state estimation, `nbs.py`
-the network-based statistic. `data.py` is the study side — sample selection, archive
+the network-based statistic. `dataset.py` is the study side — sample selection, archive
 layout and output naming — and `main.py` wires the two together and owns the CLI.
 
 ## Data and outputs
 
 `data/` contains XCP-D parcel time series, covariates and network labels derived from [SUDMEX-CONN](https://openneuro.org/datasets/ds003346/versions/1.1.2). Retained sample: 118 participants (54 HC, 64 CUD), 226 parcels, 295 frames.
 
-Outputs are saved in `data/`: state labels and mean FC (`dfc_states_all.npz`), state quality, NBS summaries, edge tables and permutation distributions.
+Outputs are saved in `data/`: state labels and mean FC (`dfc_states.npz`), state quality, NBS summaries, edge tables and permutation distributions.
 
 ## Method
 
