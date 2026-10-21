@@ -31,7 +31,7 @@ layout and output naming — and `main.py` wires the two together and owns the C
 
 `data/` contains XCP-D parcel time series, covariates and network labels derived from [SUDMEX-CONN](https://openneuro.org/datasets/ds003346/versions/1.1.2). Retained sample: 118 participants (54 HC, 64 CUD), 226 parcels, 295 frames.
 
-Outputs are saved in `data/`: state labels and mean FC (`dfc_states_all.npz`), state quality, NBS summaries, edge tables and permutation distributions.
+Outputs are saved in `data/`: state labels and mean FC (`dfc_states.npz`), state quality, NBS summaries, edge tables and permutation distributions.
 
 ## Method
 

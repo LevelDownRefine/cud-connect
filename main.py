@@ -29,30 +29,29 @@ from cud_connect.config import (  # noqa: E402
     N_BINS, SEED, STEP_TR, WIN_TR, NbsConfig, StateConfig)
 
 
-def run_states(root, config, *, cpus=4, all_parcels=True, limit=0):
+def run_states(root, config, *, cpus=4, limit=0):
     """Estimate each subject's states and write the archive, quality table and metadata."""
     start = time.time()
-    sample = dataset.load_timeseries(root, all_parcels=all_parcels, limit=limit)
+    sample = dataset.load_timeseries(root, limit=limit)
     n, frames, parcels = sample.timeseries.shape
     windows = len(range(0, frames - WIN_TR + 1, STEP_TR))
-    print(f"Subjects {n}; frames {frames}; parcels {parcels}; windows {windows}", flush=True)
+    print(f"被试 {n}  时间点 {frames}  分区 {parcels}  窗口 {windows}", flush=True)
     result = states_lib.estimate(sample.timeseries, config, workers=cpus)
     single = [s for s, c in zip(sample.subjects, result.counts) if c < 2]
     if single:
         raise ValueError(f"Single-state subjects: {single}")
 
     analysis = Path(root) / "data"
-    suffix = "_all" if all_parcels else ""
-    np.savez_compressed(analysis / f"dfc_states{suffix}.npz",
+    np.savez_compressed(analysis / "dfc_states.npz",
                         subjects=np.array(sample.subjects), labels=result.labels,
                         centroids=result.centroids, parcels=np.array(sample.parcels))
     pd.DataFrame({"subject": sample.subjects, "silhouette": result.silhouette,
                   "n_states": result.counts}).to_csv(
-        analysis / f"dfc_state_quality{suffix}.tsv", sep="\t", index=False)
+        analysis / "dfc_state_quality.tsv", sep="\t", index=False)
     meta = {
         "n": n, "timepoints": frames, "windows": windows, "parcels": parcels,
         "parcels_dropped_for_nan": sample.dropped_parcels,
-        "parcel_source": "all-256" if all_parcels else "cortical-only",
+        "parcel_source": "all-256",
         "win_tr": WIN_TR, "step_tr": STEP_TR, "dummy_volumes": dataset.DUMMY,
         "louvain_B": "negative_asym", "louvain_repeats": 1, "louvain_seed": "shared",
         "n_bins": config.n_bins, "kmeans_ninit": config.kmeans_ninit,
@@ -60,16 +59,16 @@ def run_states(root, config, *, cpus=4, all_parcels=True, limit=0):
         "scope": "state estimation and state-specific connectivity only",
         "elapsed_s": round(time.time() - start, 1),
     }
-    (analysis / f"dfc_meta{suffix}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    print(f"Saved dfc_states{suffix}.npz, state quality and metadata; {time.time()-start:.0f}s")
+    (analysis / "dfc_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    print(f"Saved dfc_states.npz, state quality and metadata; {time.time()-start:.0f}s")
 
 
-def run_nbs(root, config, *, state=None, all_parcels=False, covariates=None, seed=0):
+def run_nbs(root, config, *, state=None, covariates=None, seed=0):
     """Compare groups on one state's mean FC and write the summary, edges and null."""
     covariates = tuple(covariates or dataset.COVARIATES)
     start = time.time()
     if state:
-        fc, avail, parcels, cov = dataset.load_state_fc(root, state, all_parcels)
+        fc, avail, parcels, cov = dataset.load_state_fc(root, state)
     else:
         fc, avail, parcels, cov = dataset.load_static_fc(root)
     labels = pd.read_csv(Path(root) / "data" / "parcels_cortex.tsv", sep="\t")
@@ -83,6 +82,7 @@ def run_nbs(root, config, *, state=None, all_parcels=False, covariates=None, see
           f"  节点 {edges.n_nodes}  边 {len(edges.index[0])}")
     print(f"边阈值 alpha={config.alpha_edge}   Fisher-z={'on' if config.fisher_z else 'off'}"
           f"   n_perm={config.n_perm}   协变量={covariates}")
+    print(f"置换 {config.n_perm} 次...", flush=True)
 
     result = nbs_lib.compare(Y, (groups == "CUD").astype(float),
                              np.column_stack([nums[c][rows] for c in covariates]),
@@ -130,7 +130,7 @@ def run_nbs(root, config, *, state=None, all_parcels=False, covariates=None, see
                                   result.t_values[e], tag))
 
     suffix = dataset.output_suffix(state, alpha_edge=config.alpha_edge,
-                                   fisher_z=config.fisher_z, all_parcels=all_parcels)
+                                   fisher_z=config.fisher_z)
     analysis = Path(root) / "data"
     if edge_rows:
         pd.DataFrame(edge_rows, columns=["node_i", "node_j", "network_i", "network_j",
@@ -156,15 +156,14 @@ def _stage_states(argv):
     parser.add_argument("n_bins", nargs="?", default=N_BINS, type=int)
     parser.add_argument("n_init", nargs="?", default=300, type=int)
     parser.add_argument("limit", nargs="?", default=0, type=int)
-    parser.add_argument("cpus", nargs="?", default=8, type=int)
-    parser.add_argument("parcels", nargs="?", choices=["all"])
+    parser.add_argument("cpus", nargs="?", default=4, type=int)
     parser.add_argument("--metric", choices=["correlation", "euclidean"], default="correlation")
     parser.add_argument("--seed", type=int, default=SEED)
     args = parser.parse_args(argv)
     run_states(args.root,
                StateConfig(n_bins=args.n_bins, kmeans_ninit=args.n_init,
                            metric=args.metric, seed=args.seed),
-               cpus=args.cpus, all_parcels=args.parcels == "all", limit=args.limit)
+               cpus=args.cpus, limit=args.limit)
 
 
 def _stage_nbs(argv):
@@ -177,12 +176,10 @@ def _stage_nbs(argv):
     parser.add_argument("z", nargs="?", default="z",
                         help='"noz" keeps the values as they are')
     parser.add_argument("state", nargs="?", choices=["integrated", "segregated"])
-    parser.add_argument("parcels", nargs="?", choices=["all"])
     args = parser.parse_args(argv)
     run_nbs(args.root, NbsConfig(n_perm=args.n_perm, alpha_edge=args.alpha_edge,
                                  fisher_z=args.z.lower() not in ("0", "no", "noz", "false")),
-            state=args.state, all_parcels=args.parcels == "all",
-            covariates=tuple(args.covariates.split(",")))
+            state=args.state, covariates=tuple(args.covariates.split(",")))
 
 
 def _stage_all(argv):
@@ -195,12 +192,12 @@ def _stage_all(argv):
     args = parser.parse_args(argv)
     if args.cpus < 1:
         parser.error("--cpus must be positive")
-    run_states(args.root, StateConfig(), cpus=args.cpus, all_parcels=True)
+    run_states(args.root, StateConfig(), cpus=args.cpus)
     for state in ("integrated", "segregated"):
         # State centroids are already Fisher-z values: do not transform again.
         run_nbs(args.root, NbsConfig(n_perm=args.n_perm, alpha_edge=args.alpha_edge,
                                      fisher_z=False),
-                state=state, all_parcels=True)
+                state=state)
 
 
 def main(argv=None):

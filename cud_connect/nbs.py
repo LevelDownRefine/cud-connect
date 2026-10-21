@@ -126,6 +126,8 @@ def compare(Y, group, covariates, edges, config=NbsConfig(), seed=0):
     group = np.asarray(group, dtype=float)
     if not np.isfinite(Y).all():
         raise ValueError(f"Y has {int((~np.isfinite(Y)).sum())} non-finite values")
+    if not set(np.unique(group).tolist()) <= {0.0, 1.0}:
+        raise ValueError("group must be coded 1 for cases and 0 for controls")
     if config.fisher_z:
         Y = np.arctanh(np.clip(Y, -1 + 1e-7, 1 - 1e-7))
     Z = np.column_stack([np.ones(len(Y)), np.asarray(covariates, dtype=float)])
