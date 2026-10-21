@@ -28,11 +28,17 @@ def window_fc(subject_ts):
     return np.asarray(windows)
 
 
-def cartographic(fc, n_bins=N_BINS):
-    """Normalized participation-by-degree profile of each window, one row per window."""
+def cartographic(fc, n_bins=N_BINS, seed=SEED):
+    """Normalized participation-by-degree profile of each window, one row per window.
+
+    Trick around BCT's seeding: community_louvain builds a fresh RandomState from
+    `seed` on every call, so handing every window the same seed makes all windows
+    walk the same random sequence. This reproduces the earlier runs, but the Louvain
+    perturbations are then correlated across windows instead of independent.
+    """
     rows = []
     for matrix in fc:
-        communities, _ = bct.community_louvain(matrix, B="negative_asym", seed=SEED)
+        communities, _ = bct.community_louvain(matrix, B="negative_asym", seed=seed)
         participation, _ = bct.participation_coef_sign(matrix, communities)
         degree = bct.module_degree_zscore(matrix, communities)
         histogram, _, _ = np.histogram2d(
@@ -46,6 +52,20 @@ def cartographic(fc, n_bins=N_BINS):
     return profiles / totals
 
 
+def _embedding(profiles, metric):
+    """Map profiles to the unit sphere so Euclidean distance ranks like correlation.
+
+    sklearn's KMeans has no correlation metric. Centring each row and scaling it to
+    unit norm makes squared Euclidean distance equal 2 - 2r, so the assignment step
+    ranks exactly like correlation distance. Centroids stay plain means in that
+    space rather than spherical means, so this approximates correlation k-means.
+    """
+    if metric != "correlation":
+        return profiles
+    centered = profiles - profiles.mean(axis=1, keepdims=True)
+    return centered / np.maximum(np.linalg.norm(centered, axis=1, keepdims=True), 1e-12)
+
+
 def cluster_states(profiles, config=StateConfig()):
     """K-means into two states; returns labels, silhouette and the distinct count."""
     from sklearn.cluster import KMeans
@@ -53,10 +73,11 @@ def cluster_states(profiles, config=StateConfig()):
 
     if len(profiles) < 2:
         raise ValueError("State estimation requires at least two windows")
+    x = _embedding(profiles, config.metric)
     labels = KMeans(n_clusters=2, n_init=config.kmeans_ninit,
-                    random_state=SEED).fit_predict(profiles)
+                    random_state=config.seed).fit_predict(x)
     count = int(np.unique(labels).size)
-    silhouette = (float(silhouette_score(profiles, labels))
+    silhouette = (float(silhouette_score(x, labels))
                   if 1 < count < len(labels) else np.nan)
     return labels, silhouette, count
 
@@ -82,7 +103,7 @@ def align_states(labels, profiles, fc, n_bins=N_BINS):
 def one_subject(subject_ts, config=StateConfig()):
     """Return profiles, FCs, labels, centroids, silhouette and state count."""
     fc = window_fc(subject_ts)
-    profiles = cartographic(fc, config.n_bins)
+    profiles = cartographic(fc, config.n_bins, config.seed)
     labels, silhouette, count = cluster_states(profiles, config)
     labels, centroids = align_states(labels, profiles, fc, config.n_bins)
     return profiles, fc, labels, centroids, silhouette, count
@@ -134,9 +155,9 @@ def run_states(root, config=StateConfig()):
         "parcels_dropped_for_nan": data.dropped_parcels,
         "parcel_source": "all-256" if config.all_parcels else "cortical-only",
         "win_tr": WIN_TR, "step_tr": STEP_TR, "dummy_volumes": DUMMY,
-        "louvain_B": "negative_asym", "louvain_repeats": 1,
+        "louvain_B": "negative_asym", "louvain_repeats": 1, "louvain_seed": "shared",
         "n_bins": config.n_bins, "kmeans_ninit": config.kmeans_ninit,
-        "kmeans_metric": "Euclidean", "seed": SEED,
+        "kmeans_metric": config.metric, "seed": config.seed,
         "n_subjects_single_state": len(degenerate),
         "scope": "state estimation and state-specific connectivity only",
         "elapsed_s": round(time.time() - start, 1),
@@ -155,10 +176,13 @@ def main(argv=None):
     parser.add_argument("limit", nargs="?", default=0, type=int)
     parser.add_argument("cpus", nargs="?", default=8, type=int)
     parser.add_argument("parcels", nargs="?", choices=["all"])
+    parser.add_argument("--metric", choices=["correlation", "euclidean"], default="correlation")
+    parser.add_argument("--seed", type=int, default=SEED)
     args = parser.parse_args(argv)
     run_states(args.root, StateConfig(
         n_bins=args.n_bins, kmeans_ninit=args.n_init, cpus=args.cpus,
-        all_parcels=args.parcels == "all", limit=args.limit))
+        all_parcels=args.parcels == "all", limit=args.limit,
+        metric=args.metric, seed=args.seed))
 
 
 if __name__ == "__main__":

@@ -33,6 +33,17 @@ Outputs are saved in `data/`: state labels and mean FC (`dfc_states_all.npz`), s
 
 ## Method
 
-44-second windows, 2-second steps, 274 windows per participant; 40×40 cartographic profiles; k-means with two clusters and 300 initializations. NBS uses 10,000 permutations, edge alpha 0.01 and age, sex, education and mean-FD covariates. Significance applies to each component as a whole.
+44-second windows, 2-second steps, 274 windows per participant; 40×40 cartographic profiles; k-means with two clusters, 300 initializations and correlation distance. NBS uses 10,000 permutations, edge alpha 0.01 and age, sex, education and mean-FD covariates. Significance applies to each component as a whole.
 
-Independent implementation based on [Zheng et al. (2025)](https://doi.org/10.3389/fnins.2025.1572463). It uses Euclidean k-means and one seeded Louvain partition per window; the paper describes correlation distance and 100 consensus runs, with a different sample, atlas and primary threshold. This reproduces the core workflow, not every published setting or result.
+Independent implementation based on [Zheng et al. (2025)](https://doi.org/10.3389/fnins.2025.1572463). It runs one seeded Louvain partition per window where the paper runs 100 consensus partitions, with a different sample, atlas and primary threshold. This reproduces the core workflow, not every published setting or result.
+
+## Results
+
+118 participants (54 HC, 64 CUD), 226 parcels, edge alpha 0.01, 10,000 permutations:
+
+| state | component | edges | nodes | p(FWE) |
+| --- | --- | --- | --- | --- |
+| integrated | positive | 221 | 127 | 0.0229 |
+| segregated | positive | 265 | 134 | 0.0209 |
+
+Both components are higher in CUD. No negative component survives (p = 0.28 and 0.24).
