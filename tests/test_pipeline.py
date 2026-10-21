@@ -1,4 +1,4 @@
-"""Small synthetic integration tests; no study data or full analysis runs."""
+"""小型合成数据的集成测试；不依赖真实数据，也不跑完整分析。"""
 import json
 import os
 import subprocess
@@ -16,6 +16,16 @@ REPO = Path(__file__).resolve().parents[1]
 
 
 def run_stage(stage, root, *args):
+    """通过顶层入口跑一个阶段。
+
+    参数:
+        stage: 阶段名。
+        root: 数据根目录。
+        *args: 该阶段的其余位置参数。
+
+    异常:
+        AssertionError: 子进程返回非零。
+    """
     env = os.environ.copy()
     env.update(PYTHONIOENCODING="utf-8", OMP_NUM_THREADS="1",
                OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1")
@@ -85,7 +95,7 @@ def test_nbs_signed_components_and_adjusted_statistics(tmp_path, signal):
     noise -= design @ np.linalg.lstsq(design, noise, rcond=None)[0]
     known = {(0, 1): 1, (1, 2): 1, (2, 3): -1, (3, 4): -1}
     effects = np.array([known.get(pair, 0) for pair in zip(*upper)])
-    # Values above 1 are valid Fisher-z FC, and must not be transformed again.
+    # 大于 1 的取值本身是合法的 Fisher-z FC，不能再做一次变换。
     values = 1.2 + .02 * cov.age.to_numpy()[:, None] + noise + signal * 1.7 * group[:, None] * effects
     matrices = np.zeros((n, 2, 5, 5))
     matrices[:, 0, upper[0], upper[1]] = values
@@ -118,7 +128,7 @@ def test_nbs_signed_components_and_adjusted_statistics(tmp_path, signal):
         assert components[sign]["n_edges"] == 2
         assert components[sign]["p_fwe"] == (1 + np.count_nonzero(null[row] >= 2)) / 20
 
-    # Independent full-design OLS reference (production uses partial regression).
+    # 独立的全设计 OLS 参照；生产代码走的是偏回归。
     beta = np.linalg.lstsq(design, values, rcond=None)[0]
     variance = np.sum((values - design @ beta) ** 2, axis=0) / (n - design.shape[1])
     expected_t = beta[1] / np.sqrt(variance * np.linalg.inv(design.T @ design)[1, 1])
@@ -131,15 +141,15 @@ def test_nbs_signed_components_and_adjusted_statistics(tmp_path, signal):
 
 
 def test_invalid_inputs_are_rejected():
-    """The guards fire with a message that names the problem."""
+    """三道防线各自报出问题所在。"""
     edges = nbs.Edges.complete(3)
     values = np.zeros((4, 3))
     group = np.array([0., 0., 1., 1.])
     covariates = np.zeros((4, 1))
     cases = {
-        "non-finite": (np.full((4, 3), np.nan), group, covariates),
-        "coded": (values, np.array([0., 1., 2., 1.]), covariates),
-        "terms": (values, group, np.zeros((4, 3))),
+        "非有限": (np.full((4, 3), np.nan), group, covariates),
+        "编码": (values, np.array([0., 1., 2., 1.]), covariates),
+        "项数": (values, group, np.zeros((4, 3))),
     }
     for pattern, (Y, g, Z) in cases.items():
         with pytest.raises(ValueError, match=pattern):
@@ -147,7 +157,7 @@ def test_invalid_inputs_are_rejected():
 
 
 def test_window_fc_returns_fisher_z_windows():
-    """Every window is symmetric with a zero diagonal, and one window per step."""
+    """每步一个窗口，矩阵对称、对角线为零。"""
     rng = np.random.default_rng(3)
     fc = states.window_fc(rng.normal(size=(40, 5)))
     assert fc.shape == (40 - states.WIN_TR + 1, 5, 5)
@@ -156,8 +166,7 @@ def test_window_fc_returns_fisher_z_windows():
 
 
 def test_align_states_labels_the_integrated_state_zero():
-    """`integrated` is decided by the mean participation coefficient, not by the
-    cluster number KMeans happened to hand out."""
+    """整合态由平均参与系数决定，与 k-means 给出的簇号无关。"""
     n_bins = 4
     profiles = np.zeros((4, n_bins, n_bins))
     profiles[0, -1, 0] = profiles[1, -1, 0] = 1.0    # windows labelled 1 sit at high PC
@@ -168,7 +177,7 @@ def test_align_states_labels_the_integrated_state_zero():
 
 
 def test_components_splits_disconnected_edges():
-    """Two separate triangles give two components; no edges give none."""
+    """两个互不相连的三角形各成一个分量，空输入不产生分量。"""
     edges = nbs.Edges.complete(6)
     lookup = {pair: i for i, pair in enumerate(zip(*edges.index))}
     triangles = [(0, 1), (0, 2), (1, 2), (3, 4), (3, 5), (4, 5)]

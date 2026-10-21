@@ -1,7 +1,7 @@
-"""Dynamic functional connectivity and state-specific NBS for the CUD sample.
+"""可卡因使用障碍样本的动态功能连接与状态特异 NBS。
 
-Pipeline: parcel time series -> sliding-window FC -> cartographic profiles ->
-integrated/segregated states -> state-specific network-based statistic.
+流程：分区时间序列 → 滑窗功能连接 → 地形图剖面 → 整合态/分离态 → 状态特异的
+网络基础统计。
 """
 
 __all__ = ["config", "nbs", "states"]
