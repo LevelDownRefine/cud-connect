@@ -9,6 +9,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cud_connect import nbs
+from cud_connect.config import NbsConfig
+
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -126,3 +129,19 @@ def test_nbs_signed_components_and_adjusted_statistics(tmp_path, signal):
     for edge in edges.itertuples():
         pair = (int(edge.node_i[4:]), int(edge.node_j[4:]))
         np.testing.assert_allclose(edge.t, expected_t[pair], rtol=1e-8, atol=1e-8)
+
+
+def test_invalid_inputs_are_rejected():
+    """The guards fire with a message that names the problem."""
+    edges = nbs.Edges.complete(3)
+    values = np.zeros((4, 3))
+    group = np.array([0., 0., 1., 1.])
+    covariates = np.zeros((4, 1))
+    cases = {
+        "non-finite": (np.full((4, 3), np.nan), group, covariates),
+        "coded": (values, np.array([0., 1., 2., 1.]), covariates),
+        "terms": (values, group, np.zeros((4, 3))),
+    }
+    for pattern, (Y, g, Z) in cases.items():
+        with pytest.raises(ValueError, match=pattern):
+            nbs.compare(Y, g, Z, edges, NbsConfig(n_perm=5))
